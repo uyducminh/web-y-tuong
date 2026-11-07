@@ -1,0 +1,4 @@
+packages:
+  - 'packages/*'
+  - 'worker'
+  - 'web-main'
