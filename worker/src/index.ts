@@ -9,6 +9,8 @@ import { getStatus } from './routes/status';
 import { postRevise } from './routes/revise';
 import { getProposal } from './routes/proposal';
 import { postLead, getLeads } from './routes/leads';
+import { postCheckout } from './routes/checkout';
+import { postPayosWebhook } from './routes/payos-webhook';
 
 type Handler = (req: Request, deps: Deps, ctx: ExecutionContext, url: URL) => Promise<Response>;
 type Route = { method: string; path: string | RegExp; handler: Handler };
@@ -25,6 +27,8 @@ export const routes: Route[] = [
   { method: 'GET', path: /^\/api\/proposal\/[a-z0-9-]{1,64}$/, handler: (_req, deps, _ctx, url) => getProposal(deps, url.pathname.split('/')[3]) },
   { method: 'POST', path: /^\/lead\/[A-Za-z0-9-]{1,64}$/, handler: (req, deps, _ctx, url) => postLead(req, deps, url.pathname.split('/')[2]) },
   { method: 'GET', path: /^\/leads\/[A-Za-z0-9-]{1,64}$/, handler: (req, deps, _ctx, url) => getLeads(req, deps, url.pathname.split('/')[2], url) },
+  { method: 'POST', path: '/api/checkout', handler: (req, deps) => postCheckout(req, deps) },
+  { method: 'POST', path: '/webhook/payos', handler: (req, deps) => postPayosWebhook(req, deps) },
 ];
 
 export async function handle(req: Request, deps: Deps, ctx: ExecutionContext): Promise<Response> {

@@ -1,12 +1,24 @@
-import type { Config, Deps, Env, Publisher, PayosClient, SheetClient, Notifier } from './types';
+import type { Config, Deps, Env, Publisher } from './types';
 import { makeTurnstile } from './clients/turnstile';
 import { makeClaudeClient } from './clients/claude';
 import { makeGithubClient } from './clients/github';
 import { makeGithubPublisher } from './publisher/github-publisher';
+import { makePayosClient } from './clients/payos';
+import { makeSheetClient } from './clients/sheet';
+import { makeTelegramNotifier } from './clients/notify';
 
 function parseJson<T>(raw: string | undefined, fallback: T): T {
   if (!raw) return fallback;
   try { return JSON.parse(raw) as T; } catch { return fallback; }
+}
+
+/** PACKAGES JSON → array of well-formed packages; anything invalid → [] / dropped. Price floor is enforced at checkout. */
+function parsePackages(raw: string | undefined): Config['packages'] {
+  const v = parseJson<unknown>(raw, []);
+  if (!Array.isArray(v)) return [];
+  return v.filter((p): p is Config['packages'][number] => !!p && typeof p === 'object'
+    && typeof p.id === 'string' && typeof p.name === 'string' && typeof p.priceVnd === 'number'
+    && Array.isArray(p.items) && p.items.every((i: unknown) => typeof i === 'string'));
 }
 
 export function configFromEnv(env: Env): Config {
@@ -18,7 +30,7 @@ export function configFromEnv(env: Env): Config {
     priceInPerMTok: parseJson(env.PRICE_IN_PER_MTOK, {}),
     priceOutPerMTok: parseJson(env.PRICE_OUT_PER_MTOK, {}),
     dailyCapUsd: env.DAILY_CAP_USD !== undefined && env.DAILY_CAP_USD !== '' && Number.isFinite(Number(env.DAILY_CAP_USD)) ? Number(env.DAILY_CAP_USD) : 10,
-    packages: parseJson(env.PACKAGES, []),
+    packages: parsePackages(env.PACKAGES),
     allowTestPrice: env.ALLOW_TEST_PRICE === '1',
     publisher: env.PUBLISHER === 'cloudflare' ? 'cloudflare' : 'github',
     apiBase: env.API_BASE ?? '',
@@ -27,11 +39,8 @@ export function configFromEnv(env: Env): Config {
 
 const ni = () => { throw new Error('not implemented'); };
 
-// Stubs: later tasks replace these with real clients.
+// Stub used when the publisher is not configured.
 const publisherStub: Publisher = { create: async () => ni(), update: async () => ni(), status: async () => ni(), remove: async () => ni() };
-const payosStub: PayosClient = { createLink: async () => ni(), verifyWebhook: () => ni() };
-const sheetStub: SheetClient = { append: async () => ni(), update: async () => ni() };
-const notifyStub: Notifier = { send: async () => ni() };
 
 /** Unbiased [a-z0-9] string via rejection sampling (252 = 7*36). */
 export function randString(n: number): string {
@@ -61,7 +70,10 @@ export function makeDeps(env: Env): Deps {
     now: () => new Date(),
     rand: randString,
     turnstile: makeTurnstile(env.TURNSTILE_SECRET as string | undefined),
-    claude: makeClaudeClient({ apiKey: env.ANTHROPIC_API_KEY as string | undefined }), publisher: publisherFromEnv(env, config), payos: payosStub, sheet: sheetStub, notify: notifyStub,
+    claude: makeClaudeClient({ apiKey: env.ANTHROPIC_API_KEY as string | undefined }), publisher: publisherFromEnv(env, config), 
+    payos: makePayosClient({ clientId: env.PAYOS_CLIENT_ID, apiKey: env.PAYOS_API_KEY, checksumKey: env.PAYOS_CHECKSUM_KEY }),
+    sheet: makeSheetClient({ url: env.SHEET_URL, token: env.SHEET_TOKEN }),
+    notify: makeTelegramNotifier({ token: env.TELEGRAM_BOT_TOKEN, chatId: env.TELEGRAM_CHAT_ID }),
     config,
   };
 }

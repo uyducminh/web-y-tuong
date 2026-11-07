@@ -60,5 +60,8 @@ export type Env = {
   TURNSTILE_SECRET?: string;
   // GitHub App (secrets except GH_ORG): used when PUBLISHER=github
   GH_APP_ID?: string; GH_APP_PRIVATE_KEY?: string; GH_INSTALLATION_ID?: string;
+  // Payments / team bridge (secrets)
+  PAYOS_CLIENT_ID?: string; PAYOS_API_KEY?: string; PAYOS_CHECKSUM_KEY?: string;
+  SHEET_URL?: string; SHEET_TOKEN?: string; TELEGRAM_BOT_TOKEN?: string; TELEGRAM_CHAT_ID?: string;
   [k: string]: unknown;
 };
