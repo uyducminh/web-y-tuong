@@ -76,7 +76,7 @@ describe('POST /api/upload', () => {
 
   it('415 for .png whose magic bytes are not PNG', async () => {
     const deps = makeTestDeps(); await mkSession(deps);
-    const res = await handle(upload('s1', bytes([...new TextEncoder().encode('not an image at all')]), 'a.png'', 'image/png'), deps, ctx);
+    const res = await handle(upload('s1', bytes([...new TextEncoder().encode('not an image at all')]), 'a.png', 'image/png'), deps, ctx);
     expect(res.status).toBe(415);
   });
 
