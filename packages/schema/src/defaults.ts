@@ -1,6 +1,6 @@
 import type { Brief } from './brief';
 import { normalizePhone } from './normalize';
-import type { SectionType, SiteJson, TemplateId } from './site';
+import type { Section, SectionType, SiteJson, TemplateId } from './site';
 
 const SECTIONS: Record<TemplateId, SectionType[]> = {
   'tpl-gioi-thieu': ['about', 'products', 'certs', 'gallery', 'map', 'contact'],
@@ -8,7 +8,8 @@ const SECTIONS: Record<TemplateId, SectionType[]> = {
   'tpl-ban-hang': ['products', 'order_zalo', 'contact'],
 };
 
-function section(type: SectionType, name: string, brief: Brief): Record<string, unknown> & { type: SectionType } {
+/** Skeleton section per type; keys match SectionSchemas (and therefore what the renderer reads). */
+function section(type: SectionType, name: string, brief: Brief): Section {
   const prod = brief.san_pham_chinh || 'Sản phẩm chính';
   switch (type) {
     case 'about': return { type, title: `Về ${name}`, body: brief.diem_manh || 'Giới thiệu ngắn về đơn vị của bạn.' };

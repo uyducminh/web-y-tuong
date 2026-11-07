@@ -9,8 +9,36 @@ export const SECTION_TYPES = [
 ] as const;
 export type SectionType = (typeof SECTION_TYPES)[number];
 
-// Per-type fields are template-specific; keep extra keys (passthrough).
-export const SectionSchema = z.object({ type: z.enum(SECTION_TYPES) }).passthrough();
+// Per-type section shapes: exactly the fields templates/_shared/render.js reads (strict: an unknown key fails validation, so a wrong field-name guess is retried instead of rendering empty).
+// These flow into the AI tool's JSON schema, so the field names here are the contract with the model.
+const title = z.string().describe('Tiêu đề mục');
+const img = z.string().describe('Đường dẫn ảnh đã tải lên (assets/...) hoặc URL https://');
+
+export const SectionSchemas = {
+  about: z.object({ type: z.literal('about'), title, body: z.string(), image: img.optional() }).strict(),
+  products: z.object({ type: z.literal('products'), title, items: z.array(z.object({
+    name: z.string(), desc: z.string().optional(),
+    price: z.number().describe('Giá VND (số nguyên, 0 = không hiện giá)').optional(), image: img.optional(),
+  }).strict()) }).strict(),
+  certs: z.object({ type: z.literal('certs'), title, items: z.array(z.object({ name: z.string(), image: img.optional() }).strict()) }).strict(),
+  gallery: z.object({ type: z.literal('gallery'), title, images: z.array(img) }).strict(),
+  map: z.object({ type: z.literal('map'), title }).strict(),
+  contact: z.object({ type: z.literal('contact'), title }).strict(),
+  offer: z.object({ type: z.literal('offer'), title, body: z.string() }).strict(),
+  benefits: z.object({ type: z.literal('benefits'), title, items: z.array(z.object({ title: z.string(), desc: z.string().optional() }).strict()) }).strict(),
+  lead_form: z.object({ type: z.literal('lead_form'), title, button: z.string().optional() }).strict(),
+  testimonials: z.object({ type: z.literal('testimonials'), title, items: z.array(z.object({ text: z.string(), name: z.string().optional() }).strict()) }).strict(),
+  faq: z.object({ type: z.literal('faq'), title, items: z.array(z.object({ q: z.string(), a: z.string() }).strict()) }).strict(),
+  countdown: z.object({ type: z.literal('countdown'), title, endsAt: z.string().describe('Thời điểm kết thúc ISO 8601, ví dụ 2026-12-31T23:59:00+07:00') }).strict(),
+  order_zalo: z.object({ type: z.literal('order_zalo'), title, button: z.string().optional() }).strict(),
+} satisfies { [K in SectionType]: z.ZodObject<{ type: z.ZodLiteral<K> } & z.ZodRawShape> };
+
+const S = SectionSchemas;
+export const SectionSchema = z.discriminatedUnion('type', [
+  S.about, S.products, S.certs, S.gallery, S.map, S.contact, S.offer,
+  S.benefits, S.lead_form, S.testimonials, S.faq, S.countdown, S.order_zalo,
+]);
+export type Section = z.infer<typeof SectionSchema>;
 
 export const SiteSchema = z.object({
   schemaVersion: z.literal(1),
