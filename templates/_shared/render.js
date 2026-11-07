@@ -11,7 +11,8 @@ export function safeUrl(u) {
   const t = u.trim();
   if (!t) return null;
   const probe = t.replace(/[\u0000- \u007f-\u009f]/g, '').toLowerCase();
-  if (probe.startsWith('//')) return null;
+  // protocol-relative: browsers treat a leading `//`, `/\`, `\/` or `\\` as another host
+  if (/^[\/\\]{2}/.test(probe)) return null;
   const m = /^([a-z][a-z0-9+.-]*:)/.exec(probe);
   if (m) return SAFE_SCHEMES.includes(m[1]) ? t : null;
   return t;
@@ -63,6 +64,9 @@ function orderText(site, lines) {
   out.push(...lines);
   return out.join('\n');
 }
+
+/** Digits only (Zalo links are https://zalo.me/<số điện thoại>). */
+const digits = (v) => str(v).replace(/\D/g, '');
 
 async function copyText(text) {
   try {
@@ -144,7 +148,7 @@ export const sections = {
       list.append(li);
     };
     add('Điện thoại', c.phone, c.phone && `tel:${str(c.phone).replace(/\s/g, '')}`);
-    add('Zalo', c.zalo, c.zalo && `https://zalo.me/${encodeURIComponent(str(c.zalo))}`);
+    add('Zalo', c.zalo, digits(c.zalo) && `https://zalo.me/${digits(c.zalo)}`);
     add('Email', c.email, c.email && `mailto:${c.email}`);
     add('Địa chỉ', c.address);
     return list.children.length ? wrap('contact', d.title, list) : null;
@@ -243,7 +247,7 @@ export const sections = {
   },
 
   order_zalo(d, site) {
-    const zalo = str(site.contact.zalo || site.contact.phone).replace(/[^\d]/g, '');
+    const zalo = digits(site.contact.zalo) || digits(site.contact.phone);
     if (!zalo) return null;
     const products = [];
     for (const s of Array.isArray(site.sections) ? site.sections : []) {
@@ -262,7 +266,8 @@ export const sections = {
     }
     const note = el('textarea', { rows: 2, placeholder: 'Ghi chú (địa chỉ nhận hàng, ...)' });
     const status = el('p', { class: 'form-msg', role: 'status' });
-    const buy = el('button', { type: 'button', class: 'btn', text: str(d.button) || 'Đặt qua Zalo' });
+    // A real link (works without JS quirks, e.g. popup blockers / in-app browsers); the order is copied on click.
+    const buy = el('a', { href: `https://zalo.me/${zalo}`, target: '_blank', rel: 'noopener', class: 'btn', text: str(d.button) || 'Đặt qua Zalo' });
     const copy = el('button', { type: 'button', class: 'btn btn-ghost', text: 'Sao chép đơn hàng' });
     const build = () => {
       const lines = [];
@@ -271,10 +276,9 @@ export const sections = {
       if (note.value.trim()) lines.push(`Ghi chú: ${note.value.trim()}`);
       return orderText(site, lines);
     };
-    buy.addEventListener('click', async () => {
-      const ok = await copyText(build());
-      status.textContent = ok ? 'Đã sao chép đơn hàng, hãy dán vào Zalo.' : '';
-      window.open(`https://zalo.me/${zalo}`, '_blank', 'noopener');
+    buy.addEventListener('click', () => {
+      // Start the copy synchronously inside the click (user activation) and let the link navigate; never await before it.
+      copyText(build()).then((ok) => { status.textContent = ok ? 'Đã sao chép đơn hàng, hãy dán vào Zalo.' : ''; });
     });
     copy.addEventListener('click', async () => {
       status.textContent = (await copyText(build())) ? 'Đã sao chép đơn hàng.' : 'Không sao chép được.';
@@ -322,8 +326,10 @@ function renderHero(site) {
   return hero;
 }
 
+export const DEFAULT_PLATFORM_NAME = 'Web Làng';
+
 function renderBadge(site, opts) {
-  const platform = (opts && opts.platformName) || 'SME Builder';
+  const platform = (opts && opts.platformName) || DEFAULT_PLATFORM_NAME;
   const b = el('div', { class: 'demo-badge', role: 'note' }, el('span', { text: `Bản dùng thử – tạo bởi ${platform}` }));
   const url = safeUrl(site.demo && site.demo.checkoutUrl);
   if (url) b.append(el('a', { class: 'btn btn-sm', href: url, text: 'Triển khai chính thức' }));
@@ -370,9 +376,16 @@ export async function boot(root = document.body) {
   try {
     const res = await fetch('site.json', { cache: 'no-cache' });
     if (!res.ok) throw new Error(String(res.status));
-    const meta = document.querySelector('meta[name=lead-endpoint]');
-    const leadEndpoint = (meta && meta.getAttribute('content')) || undefined;
-    renderSite(await res.json(), root, leadEndpoint ? { leadEndpoint } : {});
+    const metaOf = (name) => {
+      const m = document.querySelector(`meta[name="${name}"]`);
+      return (m && (m.getAttribute('content') || '').trim()) || undefined;
+    };
+    const opts = {};
+    const leadEndpoint = metaOf('lead-endpoint');
+    if (leadEndpoint) opts.leadEndpoint = leadEndpoint;
+    const platformName = metaOf('platform-name'); // default "Web Làng"
+    if (platformName) opts.platformName = platformName;
+    renderSite(await res.json(), root, opts);
   } catch (e) {
     root.replaceChildren(el('p', { class: 'boot-error', text: 'Không tải được nội dung trang. Vui lòng thử lại sau.' }));
   }

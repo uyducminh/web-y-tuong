@@ -19,6 +19,8 @@ describe('safeUrl', () => {
     expect(safeUrl(' JaVa\tScript:alert(1)')).toBeNull();
     expect(safeUrl('data:text/html,x')).toBeNull();
     expect(safeUrl('//evil.com/x')).toBeNull();
+    for (const u of ['/\\evil.com', '\\/evil.com', '\\\\evil.com', ' //evil.com', '/\t/evil.com']) expect(safeUrl(u), u).toBeNull();
+    expect(safeUrl('/assets/a.png')).toBe('/assets/a.png');
     expect(safeUrl(undefined)).toBeNull();
   });
   it('allows safe urls', () => {
@@ -89,18 +91,42 @@ describe('renderSite', () => {
     expect(root.textContent).toContain('Đã gửi, chúng tôi sẽ liên hệ sớm');
     vi.unstubAllGlobals();
   });
-  it('order button opens zalo and copies order', async () => {
-    const site = defaultSite('tpl-ban-hang', brief, 'x', new Date('2026-11-08'));
+  it('"Đặt qua Zalo" is a real link (digits only) and the order copy starts synchronously in the click', async () => {
+    const site = defaultSite('tpl-ban-hang', { ...brief, lien_he: { phone: '0912 345 678', zalo: '+84 912-345-678' } }, 'x', new Date('2026-11-08'));
+    site.contact.zalo = '+84 912-345-678';
     (site.sections[0] as any).items = [{ name: 'Cà phê', price: 180000 }];
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
     const open = vi.fn(); vi.stubGlobal('open', open);
     renderSite(site, root);
-    (root.querySelector('.sec-order_zalo button') as HTMLButtonElement).click();
-    await new Promise((r) => setTimeout(r, 0));
-    expect(open.mock.calls[0][0]).toBe('https://zalo.me/0912345678');
+    const a = root.querySelector('.sec-order_zalo a.btn') as HTMLAnchorElement;
+    expect(a).not.toBeNull();
+    expect(a.getAttribute('href')).toBe('https://zalo.me/84912345678');
+    expect(a.getAttribute('target')).toBe('_blank');
+    expect(a.getAttribute('rel')).toBe('noopener');
+    let defaultPrevented = false;
+    a.addEventListener('click', (e) => { defaultPrevented = e.defaultPrevented; });
+    a.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    expect(writeText).toHaveBeenCalledTimes(1); // called before any await, inside the user gesture
     expect(writeText.mock.calls[0][0]).toContain('Cà phê');
+    expect(defaultPrevented).toBe(false); // the link itself navigates
+    expect(open).not.toHaveBeenCalled();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(root.textContent).toContain('Đã sao chép đơn hàng');
     vi.unstubAllGlobals();
+  });
+  it('contact Zalo link uses digits only', () => {
+    renderSite({ ...base, contact: { phone: '', zalo: '0912 345 678' }, sections: [{ type: 'contact', title: 'LH' }] }, root);
+    expect(root.querySelector('.sec-contact a')!.getAttribute('href')).toBe('https://zalo.me/0912345678');
+    renderSite({ ...base, contact: { phone: '', zalo: 'abc' }, sections: [{ type: 'contact', title: 'LH' }] }, root);
+    expect(root.querySelector('.sec-contact a')).toBeNull();
+    expect(root.textContent).toContain('abc');
+  });
+  it('badge names the platform: default "Web Làng", configurable', () => {
+    renderSite(base, root);
+    expect(root.querySelector('.demo-badge')!.textContent).toContain('tạo bởi Web Làng');
+    renderSite(base, root, { platformName: 'Nền tảng X' });
+    expect(root.querySelector('.demo-badge')!.textContent).toContain('tạo bởi Nền tảng X');
   });
   it('sets brand color, title and og tags', () => {
     renderSite({ ...base, brand: { ...base.brand, color: '#112233' }, seo: { title: 'T <b>', description: 'D' } }, root);
@@ -171,5 +197,19 @@ describe('fix round 1', () => {
     expect(fetchMock.mock.calls.map((c) => c[0])).toContain('https://meta.example/lead/abc');
     vi.unstubAllGlobals();
     document.head.innerHTML = '';
+  });
+  it('boot reads meta platform-name for the badge', async () => {
+    const site = defaultSite('tpl-gioi-thieu', brief, 'abc', new Date('2026-11-08'));
+    document.head.innerHTML = '<meta name="platform-name" content="HTX Số">';
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => site })));
+    await boot(root);
+    expect(root.querySelector('.demo-badge')!.textContent).toContain('tạo bởi HTX Số');
+    vi.unstubAllGlobals();
+    document.head.innerHTML = '';
+  });
+  it('every template declares the platform-name meta', () => {
+    for (const t of TEMPLATE_IDS) {
+      expect(readFileSync(resolve(process.cwd(), t, 'index.html'), 'utf8')).toContain('<meta name="platform-name" content="Web Làng">');
+    }
   });
 });
