@@ -2,7 +2,7 @@
 
 Tài liệu này dành cho người không rành kỹ thuật. Lệnh và tên biến giữ nguyên tiếng Anh, copy–dán đúng như trong khung code.
 
-**Bạn cần có sẵn:** máy tính cài Node 22, `pnpm` 10, `git`, GitHub CLI `gh`, `openssl`; tài khoản GitHub, Cloudflare, Google, PayOS, Telegram và Anthropic (có API key).
+**Bạn cần có sẵn:** máy tính cài Node 22, `pnpm` 10, `git`, GitHub CLI `gh`, `openssl`; tài khoản GitHub, Cloudflare (**gói Workers Paid**, xem Bước 0), Google, PayOS, Telegram và Anthropic (có API key).
 
 Cài thư viện một lần ở thư mục gốc dự án:
 
@@ -11,6 +11,22 @@ pnpm install
 ```
 
 > Nên làm xong **staging** (môi trường thử, dùng org GitHub test riêng) rồi mới làm **production**. Mỗi bước dưới đây làm cho staging trước; production lặp lại với tên/khoá khác.
+
+---
+
+## Bước 0. Cloudflare: bắt buộc gói Workers Paid ($5/tháng)
+
+Hệ thống **không chạy ổn trên gói Workers Free**. Trước khi deploy, vào Cloudflare → **Workers & Pages → Plans** và nâng tài khoản lên **Workers Paid** (tối thiểu 5 USD/tháng cho cả tài khoản, dùng chung cho staging và production). Lý do:
+
+- **CPU:** gói Free chỉ cho khoảng 10ms CPU mỗi yêu cầu. Tải ảnh lên (tới 5MB/ảnh: đọc, kiểm tra định dạng, mã hoá base64 để lưu) cần nhiều hơn thế, nên ảnh lớn sẽ bị lỗi giữa chừng. Gói Paid cho thời gian CPU dài hơn nhiều.
+- **Số lượt ghi KV:** gói Free chỉ có **1.000 lượt ghi KV/ngày** cho cả tài khoản (đếm lại lúc 00:00 UTC; vượt là mọi lượt ghi sau đó báo lỗi). Mỗi khách đi hết luồng (tạo phiên, tối đa 12 lượt chat, vài ảnh, tạo demo qua từng bước) tốn khoảng **30–40 lượt ghi**, nhiều hơn nếu gửi nhiều ảnh → chỉ khoảng **25–30 khách/ngày** là hết hạn mức. Gói Paid có sẵn 1 triệu lượt ghi/tháng (vượt thì tính thêm 5 USD/triệu lượt).
+- **Giới hạn vẫn còn ở cả gói Paid** (hệ thống đã được thiết kế để không vượt):
+  - Mỗi **khoá KV chỉ ghi được khoảng 1 lần/giây** → bộ đếm chi phí AI trong ngày được chia thành nhiều khoá (`cost:<ngày>:<n>`); nếu ghi chi phí vẫn lỗi thì chỉ ghi log, không làm hỏng lượt chat của khách (trần chi phí ngày khi đó có thể tính thiếu một chút).
+  - Mỗi lần chạy Worker (kể cả cron hằng ngày) tối đa **1.000 thao tác KV** → cron chỉ đọc chỉ mục `exp:<ngày>:<siteId>` của những ngày đã đến hạn và `jobidx:<jobId>` của các yêu cầu tạo demo chưa xong, không quét toàn bộ dữ liệu.
+  - KV **không đảm bảo đọc được ngay giá trị vừa ghi ở nơi khác** (có thể trễ tới khoảng 60 giây giữa các khu vực). Cơ chế "khoá" (lease) của một yêu cầu tạo demo dựa trên ghi rồi đọc lại, nên chỉ là cố gắng tốt nhất chứ không tuyệt đối.
+- **Thời gian chạy:** mỗi yêu cầu tạo demo có bước gọi AI mất 1–3 phút. Hệ thống **không** dùng `ctx.waitUntil` cho việc này (Cloudflare dừng việc chạy nền khoảng 30 giây sau khi trả lời); thay vào đó trang trạng thái gọi `POST /api/jobs/<id>/run` lần lượt từng bước, và cron hằng ngày chạy nốt các yêu cầu khách bỏ dở.
+
+Xem thêm: https://developers.cloudflare.com/workers/platform/pricing/ và https://developers.cloudflare.com/kv/platform/limits/
 
 ---
 
@@ -119,6 +135,7 @@ Sheet có tab `leads`, cột `trang_thai` sẽ chuyển `demo` → `da_thanh_toa
 
    Ví dụ `https://sme-mvp-worker-staging.<tài-khoản>.workers.dev/webhook/payos`. Làm bước này sau khi deploy Worker (biết được địa chỉ).
 3. PayOS có thể **không có môi trường sandbox**. Khi đó staging được thử bằng **một đơn thật giá rất nhỏ** (xem Bước 9).
+4. Khi một thông báo thanh toán **đã xác thực chữ ký** mà Worker xử lý lỗi (ví dụ KV quá tải), Worker trả mã 500 (để PayOS có thể gửi lại) và nhắn Telegram **"CẢNH BÁO THANH TOÁN"** kèm mã đơn, số tiền, mã tham chiếu; số tiền không khớp cũng có cảnh báo tương tự. Gặp tin này hãy đối chiếu trong trang PayOS và liên hệ khách thủ công. Có thể nhận **2 tin "ĐÃ THANH TOÁN"** cho cùng một đơn khi PayOS gửi lại — đó là bình thường.
 
 ---
 
@@ -233,7 +250,7 @@ pnpm dlx wrangler pages deploy web-main --project-name sme-mvp-staging
 pnpm smoke https://sme-mvp-worker-staging.<tài-khoản>.workers.dev
 ```
 
-Script: tạo phiên (token Turnstile thử), chat 3 lượt, upload 1 ảnh, tạo demo, chờ `ready`, mở URL demo (phải trả về 200) và đọc `site.json` của demo (trang demo dựng phía trình duyệt từ file này) để kiểm tra `siteId` đúng và `brand.name` không rỗng (chỉ cảnh báo nếu khác tên trong kịch bản), gửi 1 lead, kiểm tra CSV (thiếu khoá phải bị từ chối 403), gọi `/api/revise` một lần. Thành công in `SMOKE OK <link demo>`; thất bại thoát mã khác 0 và nêu bước lỗi.
+Script: tạo phiên (token Turnstile thử), chat 3 lượt, upload 1 ảnh, tạo demo, chạy từng bước qua `POST /api/jobs/<id>/run` (như trang trạng thái), chờ `ready`, mở URL demo (phải trả về 200) và đọc `site.json` của demo (trang demo dựng phía trình duyệt từ file này) để kiểm tra `siteId` đúng và `brand.name` không rỗng (chỉ cảnh báo nếu khác tên trong kịch bản), gửi 1 lead, kiểm tra CSV (thiếu khoá phải bị từ chối 403), gọi `/api/revise` một lần. Thành công in `SMOKE OK <link demo>`; thất bại thoát mã khác 0 và nêu bước lỗi.
 
 - Staging phải dùng secret Turnstile thử (Bước 3).
 - Mỗi lần chạy dùng một số điện thoại ngẫu nhiên (1 demo / SĐT) và tính 1 phiên cho IP của bạn (tối đa 3 phiên/IP/ngày).
@@ -262,7 +279,7 @@ Khi chạy cục bộ dùng khoá Turnstile thử ở Bước 3 và `api-base` =
 
 - **Giá Claude:** xem bảng giá Anthropic hiện hành, cập nhật `PRICE_IN_PER_MTOK` / `PRICE_OUT_PER_MTOK`, đặt `DAILY_CAP_USD` hợp lý. Mỗi demo gọi chat nhiều lượt + một lần sinh website.
 - **Phí PayOS:** kiểm tra phí giao dịch/phí kênh hiện hành, tính vào giá gói.
-- **Cloudflare Workers/KV/Pages:** kiểm tra giới hạn gói miễn phí so với lượng khách dự kiến.
+- **Cloudflare Workers/KV/Pages:** bắt buộc gói Workers Paid (Bước 0). Theo dõi số lượt ghi KV trong Cloudflare dashboard; số liệu phễu khách hằng ngày nằm ở các khoá `stat:sessions:<yyyymmdd>`, `stat:demos:<yyyymmdd>`, `stat:paid:<yyyymmdd>` (giữ khoảng 400 ngày), xem bằng `wrangler kv key get --binding KV "stat:demos:20261108"`.
 - **Telegram, GitHub, Google Apps Script:** có hạn mức; nếu lượng lớn cần kiểm tra lại.
 - Demo tự gỡ sau 30 ngày nếu chưa thanh toán (cron `0 3 * * *`).
 
