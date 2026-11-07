@@ -32,7 +32,9 @@ function turnstileToken() {
   return new Promise((resolve, reject) => {
     const render = () => {
       try {
-        window.turnstile.render('#ts', {
+        const slot = document.createElement('div');
+        document.getElementById('ts').replaceChildren(slot);
+        window.turnstile.render(slot, {
           sitekey: TURNSTILE_SITEKEY, appearance: 'interaction-only', language: 'vi',
           callback: resolve, 'error-callback': () => reject(new Error('turnstile')),
         });
@@ -66,6 +68,19 @@ function ensureSession() {
     sessionPromise.catch(() => { sessionPromise = null; });
   }
   return sessionPromise;
+}
+
+const EXPIRED = 'Phiên trò chuyện đã hết hạn nên trợ lý không còn nhớ các câu trước.';
+
+/** Phiên ở Worker không còn (404): bỏ id đã lưu VÀ promise đã cache, để lần gửi sau tạo phiên mới. */
+function dropSession() {
+  saveSession({ sessionId: undefined });
+  sessionPromise = null;
+  locked = false;
+  imagesSent = 0;
+  genOpen.classList.remove('is-ready');
+  setProgress({ filled: 0, total: 10 });
+  setTurns(TOTAL_TURNS);
 }
 
 // ---------- hiển thị ----------
@@ -158,8 +173,8 @@ async function sendText(raw) {
   } else {
     mine.remove();
     if (!msg.value) msg.value = text; // giữ lại để khách bấm Gửi lại
-    if (r.status === 404) saveSession({ sessionId: undefined });
-    showError(r.data.error);
+    if (r.status === 404) { dropSession(); showError(`${EXPIRED} Bấm “Gửi” để bắt đầu phiên mới.`); }
+    else showError(r.data.error);
   }
   syncComposer();
 }
@@ -189,6 +204,7 @@ fileInput.addEventListener('change', async () => {
   const thumbs = h('div', { class: 'thumbs' });
   const docNames = [];
   const progress = $('upload-progress');
+  let lost = false;
   const sent = await sendFiles(checked, sessionId, {
     onImage: (f) => {
       const url = URL.createObjectURL(f);
@@ -197,9 +213,11 @@ fileInput.addEventListener('change', async () => {
     onDoc: (f, chars) => docNames.push(`${f.name} (${chars.toLocaleString('vi-VN')} ký tự)`),
     onError: (m) => { errors.push(m); showError(errors.join(' ')); },
     onProgress: (t) => { progress.textContent = t; progress.hidden = !t; },
+    onSessionLost: () => { lost = true; dropSession(); errors.push(`${EXPIRED} Bạn chọn lại ảnh/tài liệu để gửi vào phiên mới.`); showError(errors.join(' ')); },
   });
-  imagesSent += sent;
   fileBtn.disabled = false;
+  if (lost) return; // ảnh đã gửi thuộc phiên cũ, không tính
+  imagesSent += sent;
   if (sent) bubble('me', `Đã nhận ${sent} ảnh. Bạn còn gửi được ${MAX_IMAGES - imagesSent} ảnh.`, thumbs);
   if (docNames.length) bubble('me', `Đã đọc tài liệu: ${docNames.join(', ')}.`);
 });
@@ -250,6 +268,11 @@ genForm.addEventListener('submit', async (e) => {
   }
   genSubmit.disabled = false;
   genSubmit.textContent = 'Gửi và tạo bản dùng thử';
+  if (r.status === 404) {
+    dropSession();
+    genFail(`${EXPIRED} Bạn nên trả lời lại vài câu để bản dùng thử đúng hơn, hoặc bấm gửi lần nữa để tạo ngay.`);
+    return;
+  }
   genFail(r.data.error, r.status === 409 ? safeUrl(r.data.url) : '');
 });
 

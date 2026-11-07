@@ -65,7 +65,8 @@ export function loadDocLibs() {
 }
 
 /**
- * Gửi ảnh từng cái một rồi tới tài liệu. ui: { onImage(file, path), onDoc(file, chars), onError(msg), onProgress(text) }.
+ * Gửi ảnh từng cái một rồi tới tài liệu. ui: { onImage(file, path), onDoc(file, chars), onError(msg), onProgress(text), onSessionLost() }.
+ * 404 (phiên hết hạn) → gọi onSessionLost() rồi dừng hẳn.
  * Trả về số ảnh đã tải lên thành công.
  */
 export async function sendFiles({ images, docs }, sessionId, ui) {
@@ -77,6 +78,7 @@ export async function sendFiles({ images, docs }, sessionId, ui) {
     form.append('sessionId', sessionId);
     form.append('file', f, f.name);
     const r = await api('/api/upload', { form, timeoutMs: 120000 });
+    if (r.status === 404) { ui.onProgress(''); ui.onSessionLost(); return sent; } // phiên hết hạn: dừng, không gửi tiếp vào id cũ
     if (r.ok) { sent++; ui.onImage(f, r.data.path); }
     else {
       ui.onError(`Ảnh “${f.name}”: ${r.data.error}`);
@@ -96,6 +98,7 @@ export async function sendFiles({ images, docs }, sessionId, ui) {
     }
     if (!text) { ui.onError(`Không tìm thấy chữ trong “${f.name}”. Nếu là bản scan, bạn hãy chụp ảnh gửi thay thế.`); continue; }
     const r = await api('/api/docs', { json: { sessionId, text: text.slice(0, MAX_CHARS) } });
+    if (r.status === 404) { ui.onProgress(''); ui.onSessionLost(); return sent; }
     if (r.ok) ui.onDoc(f, text.length);
     else ui.onError(`Tài liệu “${f.name}”: ${r.data.error}`);
   }

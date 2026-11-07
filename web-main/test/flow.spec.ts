@@ -79,6 +79,49 @@ test('?need= từ trang chủ tự gửi nhu cầu đầu tiên', async ({ page 
   expect(calls.find((c) => c.path === '/api/chat')!.body.text).toMatch(/thông tin khách/i);
 });
 
+test('phiên hết hạn (404): lần gửi lại tạo phiên mới thay vì dùng lại id cũ', async ({ page }) => {
+  const calls = await mockApi(page, {
+    '/api/session': (_c, n) => ({ json: { sessionId: `sess-${n}` } }),
+    '/api/chat': (c) => (c.body.sessionId === 'sess-1'
+      ? { status: 404, json: { error: 'Không tìm thấy phiên trò chuyện. Vui lòng tải lại trang để bắt đầu lại.' } }
+      : chatReply()(c, 1)),
+  });
+  await page.goto('/chat.html');
+  await page.locator('[data-need]').first().click();
+  await expect(page.locator('#chat-error')).toContainText('hết hạn');
+  await expect(page.locator('#msg')).toHaveValue(/giới thiệu/); // text kept for retry
+  await page.locator('#send').click();
+  await expect(page.getByText('Đã đủ 2/10 thông tin')).toBeVisible();
+  expect(calls.filter((c) => c.path === '/api/session')).toHaveLength(2);
+  expect(calls.filter((c) => c.path === '/api/chat').map((c) => c.body.sessionId)).toEqual(['sess-1', 'sess-2']);
+});
+
+test('phiên hết hạn khi tải ảnh hoặc tạo bản dùng thử: báo rõ và lần sau tạo phiên mới', async ({ page }) => {
+  const gone = { status: 404, json: { error: 'Không tìm thấy phiên trò chuyện. Vui lòng tải lại trang để bắt đầu lại.' } };
+  const calls = await mockApi(page, {
+    '/api/session': (_c, n) => ({ json: { sessionId: `sess-${n}` } }),
+    '/api/upload': (c, n) => (n === 1 ? gone : { json: { path: 'assets/1-a.png' } }),
+    '/api/generate': () => gone,
+  });
+  await page.goto('/chat.html');
+  const pick = () => page.locator('input[type=file]').setInputFiles([
+    { name: 'a.png', mimeType: 'image/png', buffer: png }, { name: 'b.png', mimeType: 'image/png', buffer: png }]);
+  await pick();
+  await expect(page.locator('#chat-error')).toContainText('hết hạn');
+  expect(calls.filter((c) => c.path === '/api/upload')).toHaveLength(1); // stops after the 404, no second upload on the dead id
+  await pick();
+  await expect(page.getByText('Đã nhận 2 ảnh')).toBeVisible();
+  expect(calls.filter((c) => c.path === '/api/session')).toHaveLength(2);
+
+  await page.getByRole('button', { name: 'Tạo bản dùng thử', exact: true }).click();
+  await page.getByLabel('Tên của bạn').fill('Chị Lan');
+  await page.getByLabel(/Số điện thoại/).fill('0912345678');
+  await page.getByRole('button', { name: 'Gửi và tạo bản dùng thử' }).click();
+  await expect(page.locator('#gen-error')).toContainText('hết hạn');
+  await page.getByRole('button', { name: 'Gửi và tạo bản dùng thử' }).click();
+  await expect.poll(() => calls.filter((c) => c.path === '/api/session').length).toBe(3);
+});
+
 test('Turnstile: dùng token từ widget khi có site key', async ({ page }) => {
   await page.route('**/chat.html', async (route) => {
     const res = await route.fetch();
