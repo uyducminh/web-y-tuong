@@ -1,0 +1,20 @@
+/* tpl-thu-lead: landing page thu thông tin - căn giữa, form nổi bật */
+body { background: var(--soft); }
+.hero { text-align: center; }
+.hero-inner { text-align: center; padding: 3.5rem 1rem; }
+.hero .logo { margin-left: auto; margin-right: auto; }
+.hero h1 { font-size: 2.1rem; overflow-wrap: anywhere; }
+.hero .btn { font-size: 1.1rem; padding: .8em 2em; }
+main { max-width: 760px; }
+.sec { text-align: center; border-bottom: 0; }
+.sec h2 { overflow-wrap: anywhere; }
+.sec-offer .lead { font-size: 1.2rem; overflow-wrap: anywhere; }
+.sec-benefits .card, .sec-testimonials .card, .sec-faq .faq { text-align: left; }
+.sec-lead_form .lead-form { max-width: 480px; margin: 0 auto; text-align: left; background: #fff; border: 2px solid var(--brand); border-radius: var(--radius); padding: 1.25rem; box-shadow: 0 6px 20px rgba(0,0,0,.08); }
+.lead-form .btn { width: 100%; overflow-wrap: anywhere; }
+.faq { background: #fff; border-radius: var(--radius); padding: .5rem 1rem; }
+.faq summary, .faq p { overflow-wrap: anywhere; }
+.sec-testimonials footer { margin-top: .5rem; color: var(--muted); font-size: .9rem; overflow-wrap: anywhere; }
+.sec-countdown { background: #fff; border-radius: var(--radius); margin: 1rem 0; }
+@media (min-width: 640px) { .hero h1 { font-size: 2.8rem; } }
+.sec-benefits .card, .sec-testimonials .card { background: #fff; }

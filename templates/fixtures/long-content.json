@@ -1,0 +1,422 @@
+{
+  "schemaVersion": 1,
+  "template": "tpl-gioi-thieu",
+  "siteId": "long-content-ij90",
+  "brand": {
+    "name": "Hợp tác xã nông nghiệp dịch vụ tổng hợp sản xuất và tiêu thụ nông sản sạch vùng cao nguyên Lâm Viên Langbiang xxxxxxxxxx",
+    "color": "#00695c",
+    "slogan": "Hợp tác xã nông nghiệp dịch vụ tổng hợp sản xuất và tiêu thụ nông sản sạch vùng cao nguyên Lâm Viên Langbiang xxxxxxxxxx",
+    "logo": "/fixtures/img/p1.svg"
+  },
+  "contact": {
+    "phone": "0912345678",
+    "zalo": "0912345678",
+    "email": "mot.dia.chi.email.rat.dai.de.kiem.tra.tran.ngang@ten-mien-rat-dai-dong-dai.example.com",
+    "address": "Hợp tác xã nông nghiệp dịch vụ tổng hợp sản xuất và tiêu thụ nông sản sạch vùng cao nguyên Lâm Viên Langbiang xxxxxxxxxx",
+    "mapEmbed": "https://www.google.com/maps/embed?pb=!1m18"
+  },
+  "seo": {
+    "title": "Hợp tác xã nông nghiệp dịch vụ tổng hợp sản xuất và tiêu thụ nông sản sạch vùng cao nguyên Lâm Viên Langbiang xxxxxxxxxx",
+    "description": "Hợp tác xã nông nghiệp dịch vụ tổng hợp sản xuất và tiêu thụ nông sản sạch vùng cao nguyên Lâm Viên Langbiang xxxxxxxxxx"
+  },
+  "hero": {
+    "title": "Hợp tác xã nông nghiệp dịch vụ tổng hợp sản xuất và tiêu thụ nông sản sạch vùng cao nguyên Lâm Viên Langbiang xxxxxxxxxx",
+    "subtitle": "Hợp tác xã nông nghiệp dịch vụ tổng hợp sản xuất và tiêu thụ nông sản sạch vùng cao nguyên Lâm Viên Langbiang xxxxxxxxxx SiêuDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDài",
+    "image": "/fixtures/img/p2.svg",
+    "cta": "Đăng ký ngay"
+  },
+  "sections": [
+    {
+      "type": "about",
+      "title": "Hợp tác xã nông nghiệp dịch vụ tổng hợp sản xuất và tiêu thụ nông sản sạch vùng cao nguyên Lâm Viên Langbiang xxxxxxxxxx",
+      "body": "Đoạn mô tả dài. Đoạn mô tả dài. Đoạn mô tả dài. Đoạn mô tả dài. Đoạn mô tả dài. Đoạn mô tả dài. Đoạn mô tả dài. Đoạn mô tả dài. Đoạn mô tả dài. Đoạn mô tả dài. Đoạn mô tả dài. Đoạn mô tả dài. Đoạn mô tả dài. Đoạn mô tả dài. Đoạn mô tả dài. Đoạn mô tả dài. Đoạn mô tả dài. Đoạn mô tả dài. Đoạn mô tả dài. Đoạn mô tả dài. Đoạn mô tả dài. Đoạn mô tả dài. Đoạn mô tả dài. Đoạn mô tả dài. Đoạn mô tả dài. Đoạn mô tả dài. Đoạn mô tả dài. Đoạn mô tả dài. Đoạn mô tả dài. Đoạn mô tả dài. Đoạn mô tả dài. Đoạn mô tả dài. Đoạn mô tả dài. Đoạn mô tả dài. Đoạn mô tả dài. Đoạn mô tả dài. Đoạn mô tả dài. Đoạn mô tả dài. Đoạn mô tả dài. Đoạn mô tả dài. Đoạn mô tả dài. Đoạn mô tả dài. Đoạn mô tả dài. Đoạn mô tả dài. Đoạn mô tả dài. Đoạn mô tả dài. Đoạn mô tả dài. Đoạn mô tả dài. Đoạn mô tả dài. Đoạn mô tả dài. Đoạn mô tả dài. Đoạn mô tả dài. Đoạn mô tả dài. Đoạn mô tả dài. Đoạn mô tả dài. Đoạn mô tả dài. Đoạn mô tả dài. Đoạn mô tả dài. Đoạn mô tả dài. Đoạn mô tả dài. SiêuDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDài",
+      "image": "/fixtures/img/p1.svg"
+    },
+    {
+      "type": "offer",
+      "title": "Hợp tác xã nông nghiệp dịch vụ tổng hợp sản xuất và tiêu thụ nông sản sạch vùng cao nguyên Lâm Viên Langbiang xxxxxxxxxx",
+      "body": "Hợp tác xã nông nghiệp dịch vụ tổng hợp sản xuất và tiêu thụ nông sản sạch vùng cao nguyên Lâm Viên Langbiang xxxxxxxxxx"
+    },
+    {
+      "type": "products",
+      "title": "Sản phẩm",
+      "items": [
+        {
+          "name": "Sản phẩm số 1 Hợp tác xã nông nghiệp dịch vụ tổng hợp sản xuất và tiêu thụ nông sản sạch vùng cao nguyên Lâm Viên Langbiang xxxxxxxxxx",
+          "desc": "SiêuDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDài",
+          "price": 12500,
+          "image": ""
+        },
+        {
+          "name": "Sản phẩm số 2 tên vừa phải",
+          "desc": "Mô tả ngắn cho sản phẩm",
+          "price": 25000,
+          "image": "/fixtures/img/p2.svg"
+        },
+        {
+          "name": "Sản phẩm số 3 tên vừa phải",
+          "desc": "Mô tả ngắn cho sản phẩm",
+          "price": 37500,
+          "image": ""
+        },
+        {
+          "name": "Sản phẩm số 4 tên vừa phải",
+          "desc": "SiêuDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDài",
+          "price": 50000,
+          "image": "/fixtures/img/p4.svg"
+        },
+        {
+          "name": "Sản phẩm số 5 tên vừa phải",
+          "desc": "Mô tả ngắn cho sản phẩm",
+          "price": 62500,
+          "image": ""
+        },
+        {
+          "name": "Sản phẩm số 6 Hợp tác xã nông nghiệp dịch vụ tổng hợp sản xuất và tiêu thụ nông sản sạch vùng cao nguyên Lâm Viên Langbiang xxxxxxxxxx",
+          "desc": "Mô tả ngắn cho sản phẩm",
+          "price": 75000,
+          "image": "/fixtures/img/p2.svg"
+        },
+        {
+          "name": "Sản phẩm số 7 tên vừa phải",
+          "desc": "SiêuDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDài",
+          "price": 87500,
+          "image": ""
+        },
+        {
+          "name": "Sản phẩm số 8 tên vừa phải",
+          "desc": "Mô tả ngắn cho sản phẩm",
+          "price": 100000,
+          "image": "/fixtures/img/p4.svg"
+        },
+        {
+          "name": "Sản phẩm số 9 tên vừa phải",
+          "desc": "Mô tả ngắn cho sản phẩm",
+          "price": 112500,
+          "image": ""
+        },
+        {
+          "name": "Sản phẩm số 10 tên vừa phải",
+          "desc": "SiêuDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDài",
+          "price": 125000,
+          "image": "/fixtures/img/p2.svg"
+        },
+        {
+          "name": "Sản phẩm số 11 Hợp tác xã nông nghiệp dịch vụ tổng hợp sản xuất và tiêu thụ nông sản sạch vùng cao nguyên Lâm Viên Langbiang xxxxxxxxxx",
+          "desc": "Mô tả ngắn cho sản phẩm",
+          "price": 137500,
+          "image": ""
+        },
+        {
+          "name": "Sản phẩm số 12 tên vừa phải",
+          "desc": "Mô tả ngắn cho sản phẩm",
+          "price": 150000,
+          "image": "/fixtures/img/p4.svg"
+        },
+        {
+          "name": "Sản phẩm số 13 tên vừa phải",
+          "desc": "SiêuDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDài",
+          "price": 162500,
+          "image": ""
+        },
+        {
+          "name": "Sản phẩm số 14 tên vừa phải",
+          "desc": "Mô tả ngắn cho sản phẩm",
+          "price": 175000,
+          "image": "/fixtures/img/p2.svg"
+        },
+        {
+          "name": "Sản phẩm số 15 tên vừa phải",
+          "desc": "Mô tả ngắn cho sản phẩm",
+          "price": 187500,
+          "image": ""
+        },
+        {
+          "name": "Sản phẩm số 16 Hợp tác xã nông nghiệp dịch vụ tổng hợp sản xuất và tiêu thụ nông sản sạch vùng cao nguyên Lâm Viên Langbiang xxxxxxxxxx",
+          "desc": "SiêuDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDài",
+          "price": 200000,
+          "image": "/fixtures/img/p4.svg"
+        },
+        {
+          "name": "Sản phẩm số 17 tên vừa phải",
+          "desc": "Mô tả ngắn cho sản phẩm",
+          "price": 212500,
+          "image": ""
+        },
+        {
+          "name": "Sản phẩm số 18 tên vừa phải",
+          "desc": "Mô tả ngắn cho sản phẩm",
+          "price": 225000,
+          "image": "/fixtures/img/p2.svg"
+        },
+        {
+          "name": "Sản phẩm số 19 tên vừa phải",
+          "desc": "SiêuDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDài",
+          "price": 237500,
+          "image": ""
+        },
+        {
+          "name": "Sản phẩm số 20 tên vừa phải",
+          "desc": "Mô tả ngắn cho sản phẩm",
+          "price": 250000,
+          "image": "/fixtures/img/p4.svg"
+        },
+        {
+          "name": "Sản phẩm số 21 Hợp tác xã nông nghiệp dịch vụ tổng hợp sản xuất và tiêu thụ nông sản sạch vùng cao nguyên Lâm Viên Langbiang xxxxxxxxxx",
+          "desc": "Mô tả ngắn cho sản phẩm",
+          "price": 262500,
+          "image": ""
+        },
+        {
+          "name": "Sản phẩm số 22 tên vừa phải",
+          "desc": "SiêuDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDài",
+          "price": 275000,
+          "image": "/fixtures/img/p2.svg"
+        },
+        {
+          "name": "Sản phẩm số 23 tên vừa phải",
+          "desc": "Mô tả ngắn cho sản phẩm",
+          "price": 287500,
+          "image": ""
+        },
+        {
+          "name": "Sản phẩm số 24 tên vừa phải",
+          "desc": "Mô tả ngắn cho sản phẩm",
+          "price": 300000,
+          "image": "/fixtures/img/p4.svg"
+        },
+        {
+          "name": "Sản phẩm số 25 tên vừa phải",
+          "desc": "SiêuDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDài",
+          "price": 312500,
+          "image": ""
+        },
+        {
+          "name": "Sản phẩm số 26 Hợp tác xã nông nghiệp dịch vụ tổng hợp sản xuất và tiêu thụ nông sản sạch vùng cao nguyên Lâm Viên Langbiang xxxxxxxxxx",
+          "desc": "Mô tả ngắn cho sản phẩm",
+          "price": 325000,
+          "image": "/fixtures/img/p2.svg"
+        },
+        {
+          "name": "Sản phẩm số 27 tên vừa phải",
+          "desc": "Mô tả ngắn cho sản phẩm",
+          "price": 337500,
+          "image": ""
+        },
+        {
+          "name": "Sản phẩm số 28 tên vừa phải",
+          "desc": "SiêuDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDài",
+          "price": 350000,
+          "image": "/fixtures/img/p4.svg"
+        },
+        {
+          "name": "Sản phẩm số 29 tên vừa phải",
+          "desc": "Mô tả ngắn cho sản phẩm",
+          "price": 362500,
+          "image": ""
+        },
+        {
+          "name": "Sản phẩm số 30 tên vừa phải",
+          "desc": "Mô tả ngắn cho sản phẩm",
+          "price": 375000,
+          "image": "/fixtures/img/p2.svg"
+        },
+        {
+          "name": "Sản phẩm số 31 Hợp tác xã nông nghiệp dịch vụ tổng hợp sản xuất và tiêu thụ nông sản sạch vùng cao nguyên Lâm Viên Langbiang xxxxxxxxxx",
+          "desc": "SiêuDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDài",
+          "price": 387500,
+          "image": ""
+        },
+        {
+          "name": "Sản phẩm số 32 tên vừa phải",
+          "desc": "Mô tả ngắn cho sản phẩm",
+          "price": 400000,
+          "image": "/fixtures/img/p4.svg"
+        },
+        {
+          "name": "Sản phẩm số 33 tên vừa phải",
+          "desc": "Mô tả ngắn cho sản phẩm",
+          "price": 412500,
+          "image": ""
+        },
+        {
+          "name": "Sản phẩm số 34 tên vừa phải",
+          "desc": "SiêuDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDài",
+          "price": 425000,
+          "image": "/fixtures/img/p2.svg"
+        },
+        {
+          "name": "Sản phẩm số 35 tên vừa phải",
+          "desc": "Mô tả ngắn cho sản phẩm",
+          "price": 437500,
+          "image": ""
+        },
+        {
+          "name": "Sản phẩm số 36 Hợp tác xã nông nghiệp dịch vụ tổng hợp sản xuất và tiêu thụ nông sản sạch vùng cao nguyên Lâm Viên Langbiang xxxxxxxxxx",
+          "desc": "Mô tả ngắn cho sản phẩm",
+          "price": 450000,
+          "image": "/fixtures/img/p4.svg"
+        },
+        {
+          "name": "Sản phẩm số 37 tên vừa phải",
+          "desc": "SiêuDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDài",
+          "price": 462500,
+          "image": ""
+        },
+        {
+          "name": "Sản phẩm số 38 tên vừa phải",
+          "desc": "Mô tả ngắn cho sản phẩm",
+          "price": 475000,
+          "image": "/fixtures/img/p2.svg"
+        },
+        {
+          "name": "Sản phẩm số 39 tên vừa phải",
+          "desc": "Mô tả ngắn cho sản phẩm",
+          "price": 487500,
+          "image": ""
+        },
+        {
+          "name": "Sản phẩm số 40 tên vừa phải",
+          "desc": "SiêuDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDài",
+          "price": 500000,
+          "image": "/fixtures/img/p4.svg"
+        }
+      ]
+    },
+    {
+      "type": "benefits",
+      "title": "Lợi ích",
+      "items": [
+        {
+          "title": "Lợi ích 1 SiêuDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDài",
+          "desc": "Hợp tác xã nông nghiệp dịch vụ tổng hợp sản xuất và tiêu thụ nông sản sạch vùng cao nguyên Lâm Viên Langbiang xxxxxxxxxx"
+        },
+        {
+          "title": "Lợi ích 2 SiêuDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDài",
+          "desc": "Hợp tác xã nông nghiệp dịch vụ tổng hợp sản xuất và tiêu thụ nông sản sạch vùng cao nguyên Lâm Viên Langbiang xxxxxxxxxx"
+        },
+        {
+          "title": "Lợi ích 3 SiêuDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDài",
+          "desc": "Hợp tác xã nông nghiệp dịch vụ tổng hợp sản xuất và tiêu thụ nông sản sạch vùng cao nguyên Lâm Viên Langbiang xxxxxxxxxx"
+        },
+        {
+          "title": "Lợi ích 4 SiêuDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDài",
+          "desc": "Hợp tác xã nông nghiệp dịch vụ tổng hợp sản xuất và tiêu thụ nông sản sạch vùng cao nguyên Lâm Viên Langbiang xxxxxxxxxx"
+        },
+        {
+          "title": "Lợi ích 5 SiêuDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDài",
+          "desc": "Hợp tác xã nông nghiệp dịch vụ tổng hợp sản xuất và tiêu thụ nông sản sạch vùng cao nguyên Lâm Viên Langbiang xxxxxxxxxx"
+        },
+        {
+          "title": "Lợi ích 6 SiêuDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDài",
+          "desc": "Hợp tác xã nông nghiệp dịch vụ tổng hợp sản xuất và tiêu thụ nông sản sạch vùng cao nguyên Lâm Viên Langbiang xxxxxxxxxx"
+        },
+        {
+          "title": "Lợi ích 7 SiêuDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDài",
+          "desc": "Hợp tác xã nông nghiệp dịch vụ tổng hợp sản xuất và tiêu thụ nông sản sạch vùng cao nguyên Lâm Viên Langbiang xxxxxxxxxx"
+        },
+        {
+          "title": "Lợi ích 8 SiêuDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDài",
+          "desc": "Hợp tác xã nông nghiệp dịch vụ tổng hợp sản xuất và tiêu thụ nông sản sạch vùng cao nguyên Lâm Viên Langbiang xxxxxxxxxx"
+        }
+      ]
+    },
+    {
+      "type": "certs",
+      "title": "Chứng nhận",
+      "items": [
+        {
+          "name": "Chứng nhận 1 SiêuDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDài"
+        },
+        {
+          "name": "Chứng nhận 2 SiêuDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDài"
+        },
+        {
+          "name": "Chứng nhận 3 SiêuDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDài"
+        },
+        {
+          "name": "Chứng nhận 4 SiêuDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDài"
+        },
+        {
+          "name": "Chứng nhận 5 SiêuDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDài"
+        },
+        {
+          "name": "Chứng nhận 6 SiêuDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDài"
+        },
+        {
+          "name": "Chứng nhận 7 SiêuDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDài"
+        },
+        {
+          "name": "Chứng nhận 8 SiêuDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDài"
+        },
+        {
+          "name": "Chứng nhận 9 SiêuDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDài"
+        },
+        {
+          "name": "Chứng nhận 10 SiêuDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDài"
+        }
+      ]
+    },
+    {
+      "type": "gallery",
+      "title": "Hình ảnh",
+      "images": [
+        "/fixtures/img/p1.svg",
+        "/fixtures/img/p2.svg",
+        "/fixtures/img/p3.svg",
+        "/fixtures/img/p4.svg",
+        "/fixtures/img/p1.svg",
+        "/fixtures/img/p2.svg",
+        "/fixtures/img/p3.svg",
+        "/fixtures/img/p4.svg",
+        "/fixtures/img/p1.svg",
+        "/fixtures/img/p2.svg",
+        "/fixtures/img/p3.svg",
+        "/fixtures/img/p4.svg"
+      ]
+    },
+    {
+      "type": "testimonials",
+      "title": "Phản hồi",
+      "items": [
+        {
+          "text": "Hợp tác xã nông nghiệp dịch vụ tổng hợp sản xuất và tiêu thụ nông sản sạch vùng cao nguyên Lâm Viên Langbiang xxxxxxxxxx SiêuDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDài",
+          "name": "Hợp tác xã nông nghiệp dịch vụ tổng hợp sản xuất và tiêu thụ nông sản sạch vùng cao nguyên Lâm Viên Langbiang xxxxxxxxxx"
+        }
+      ]
+    },
+    {
+      "type": "faq",
+      "title": "Hỏi đáp",
+      "items": [
+        {
+          "q": "Hợp tác xã nông nghiệp dịch vụ tổng hợp sản xuất và tiêu thụ nông sản sạch vùng cao nguyên Lâm Viên Langbiang xxxxxxxxxx",
+          "a": "Trả lời. Trả lời. Trả lời. Trả lời. Trả lời. Trả lời. Trả lời. Trả lời. Trả lời. Trả lời. Trả lời. Trả lời. Trả lời. Trả lời. Trả lời. Trả lời. Trả lời. Trả lời. Trả lời. Trả lời. Trả lời. Trả lời. Trả lời. Trả lời. Trả lời. Trả lời. Trả lời. Trả lời. Trả lời. Trả lời. Trả lời. Trả lời. Trả lời. Trả lời. Trả lời. Trả lời. Trả lời. Trả lời. Trả lời. Trả lời. SiêuDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDàiDài"
+        }
+      ]
+    },
+    {
+      "type": "lead_form",
+      "title": "Đăng ký",
+      "button": "Hợp tác xã nông nghiệp dịch vụ tổng hợp sản xuất và tiêu thụ nông sản sạch vùng cao nguyên Lâm Viên Langbiang xxxxxxxxxx"
+    },
+    {
+      "type": "order_zalo",
+      "title": "Đặt hàng",
+      "button": "Đặt qua Zalo"
+    },
+    {
+      "type": "map",
+      "title": "Bản đồ"
+    },
+    {
+      "type": "contact",
+      "title": "Liên hệ"
+    }
+  ],
+  "demo": {
+    "badge": true,
+    "expires": "2026-12-08",
+    "checkoutUrl": "https://example.com/checkout"
+  }
+}

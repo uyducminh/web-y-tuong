@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "template": "tpl-gioi-thieu",
+  "siteId": "minimal-gh78",
+  "brand": {
+    "name": "Tiệm nhỏ",
+    "color": "#2E7D32"
+  },
+  "contact": {
+    "phone": "0901234567"
+  },
+  "seo": {
+    "title": "Tiệm nhỏ",
+    "description": "Tiệm nhỏ"
+  },
+  "hero": {
+    "title": "Tiệm nhỏ",
+    "subtitle": "Đang cập nhật",
+    "cta": "Liên hệ"
+  },
+  "sections": [],
+  "demo": {
+    "badge": true,
+    "expires": "2026-12-08",
+    "checkoutUrl": "https://example.com/checkout"
+  }
+}

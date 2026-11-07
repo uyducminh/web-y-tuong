@@ -1,0 +1,101 @@
+{
+  "schemaVersion": 1,
+  "template": "tpl-gioi-thieu",
+  "siteId": "htx-ca-phe-ab12",
+  "brand": {
+    "name": "HTX Cà phê Cầu Đất",
+    "color": "#6d4c41",
+    "slogan": "Hương vị từ cao nguyên",
+    "logo": "/fixtures/img/p1.svg"
+  },
+  "contact": {
+    "phone": "0912345678",
+    "zalo": "0912345678",
+    "email": "lienhe@htxcaphe.vn",
+    "address": "Thôn Cầu Đất, xã Xuân Trường, Đà Lạt, Lâm Đồng",
+    "mapEmbed": "https://www.google.com/maps/embed?pb=!1m18"
+  },
+  "seo": {
+    "title": "HTX Cà phê Cầu Đất",
+    "description": "Cà phê đặc sản Cầu Đất, Đà Lạt"
+  },
+  "hero": {
+    "title": "Cà phê sạch từ vùng đất Cầu Đất",
+    "subtitle": "Hơn 120 hộ xã viên canh tác theo tiêu chuẩn hữu cơ",
+    "image": "/fixtures/img/p2.svg",
+    "cta": "Xem sản phẩm"
+  },
+  "sections": [
+    {
+      "type": "about",
+      "title": "Về chúng tôi",
+      "body": "HTX Cà phê Cầu Đất được thành lập năm 2015, quy tụ hơn 120 hộ nông dân trồng cà phê Arabica ở độ cao 1.500m. Chúng tôi cam kết quy trình canh tác sạch, thu hái chín và sơ chế tỉ mỉ.",
+      "image": "/fixtures/img/p2.svg"
+    },
+    {
+      "type": "products",
+      "title": "Sản phẩm",
+      "items": [
+        {
+          "name": "Arabica rang mộc 500g",
+          "desc": "Vị chua thanh, hậu ngọt",
+          "price": 185000,
+          "image": "/fixtures/img/p1.svg"
+        },
+        {
+          "name": "Culi rang xay 500g",
+          "desc": "Đậm đà, hương thơm mạnh",
+          "price": 150000,
+          "image": "/fixtures/img/p2.svg"
+        },
+        {
+          "name": "Cà phê nhân xanh 1kg",
+          "desc": "Dành cho người tự rang",
+          "price": 210000,
+          "image": "/fixtures/img/p3.svg"
+        }
+      ]
+    },
+    {
+      "type": "certs",
+      "title": "Chứng nhận",
+      "items": [
+        {
+          "name": "VietGAP"
+        },
+        {
+          "name": "OCOP 4 sao",
+          "image": "/fixtures/img/p4.svg"
+        },
+        {
+          "name": "HACCP"
+        }
+      ]
+    },
+    {
+      "type": "gallery",
+      "title": "Hình ảnh",
+      "images": [
+        "/fixtures/img/p1.svg",
+        "/fixtures/img/p2.svg",
+        "/fixtures/img/p3.svg",
+        "/fixtures/img/p4.svg",
+        "/fixtures/img/p1.svg",
+        "/fixtures/img/p2.svg"
+      ]
+    },
+    {
+      "type": "map",
+      "title": "Địa chỉ"
+    },
+    {
+      "type": "contact",
+      "title": "Liên hệ"
+    }
+  ],
+  "demo": {
+    "badge": true,
+    "expires": "2026-12-08",
+    "checkoutUrl": "https://example.com/checkout"
+  }
+}

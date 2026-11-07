@@ -52,3 +52,7 @@ main { max-width: 960px; margin: 0 auto; padding: 0 1rem; }
 .boot-error { padding: 2rem 1rem; text-align: center; }
 @media (min-width: 640px) { .grid { grid-template-columns: repeat(2, 1fr); } .gallery { grid-template-columns: repeat(3, 1fr); } h1 { font-size: 2.4rem; } }
 @media (min-width: 960px) { .grid { grid-template-columns: repeat(3, 1fr); } .hero-inner { padding: 5rem 1rem; } .sec { padding: 3rem 0; } }
+/* long-content safety: never let unbroken text widen the page */
+body { overflow-wrap: anywhere; }
+.grid > *, .gallery > *, .btn-row > *, .contact-list li, .chip { min-width: 0; }
+.btn { max-width: 100%; }

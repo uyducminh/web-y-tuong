@@ -1,0 +1,90 @@
+{
+  "schemaVersion": 1,
+  "template": "tpl-thu-lead",
+  "siteId": "hoi-thao-cd34",
+  "brand": {
+    "name": "Hội thảo Nông nghiệp số 2026",
+    "color": "#1565c0"
+  },
+  "contact": {
+    "phone": "0988777666",
+    "zalo": "0988777666"
+  },
+  "seo": {
+    "title": "Hội thảo Nông nghiệp số 2026",
+    "description": "Đăng ký tham dự hội thảo miễn phí"
+  },
+  "hero": {
+    "title": "Hội thảo Nông nghiệp số",
+    "subtitle": "Học cách bán nông sản online cho hợp tác xã",
+    "cta": "Đăng ký ngay"
+  },
+  "sections": [
+    {
+      "type": "offer",
+      "title": "Tham dự miễn phí",
+      "body": "Chỉ còn 50 suất cho buổi hội thảo ngày 20/12 tại Đà Lạt. Đăng ký sớm để nhận bộ tài liệu."
+    },
+    {
+      "type": "benefits",
+      "title": "Bạn nhận được gì",
+      "items": [
+        {
+          "title": "Kiến thức thực chiến",
+          "desc": "Từ chuyên gia có kinh nghiệm"
+        },
+        {
+          "title": "Tài liệu",
+          "desc": "Bộ mẫu website và nội dung"
+        },
+        {
+          "title": "Kết nối",
+          "desc": "Mạng lưới HTX trên cả nước"
+        }
+      ]
+    },
+    {
+      "type": "lead_form",
+      "title": "Đăng ký tham dự",
+      "button": "Giữ chỗ cho tôi"
+    },
+    {
+      "type": "testimonials",
+      "title": "Học viên nói gì",
+      "items": [
+        {
+          "text": "Rất hữu ích, tôi đã mở được kênh bán hàng mới.",
+          "name": "Chị Lan, HTX Đơn Dương"
+        },
+        {
+          "text": "Nội dung dễ hiểu, áp dụng ngay.",
+          "name": "Anh Hùng"
+        }
+      ]
+    },
+    {
+      "type": "faq",
+      "title": "Câu hỏi thường gặp",
+      "items": [
+        {
+          "q": "Tôi có mất phí không?",
+          "a": "Hội thảo hoàn toàn miễn phí."
+        },
+        {
+          "q": "Có hỗ trợ trực tuyến không?",
+          "a": "Có, chúng tôi phát trực tiếp."
+        }
+      ]
+    },
+    {
+      "type": "countdown",
+      "title": "Đăng ký kết thúc sau",
+      "endsAt": "2030-12-20T00:00:00+07:00"
+    }
+  ],
+  "demo": {
+    "badge": true,
+    "expires": "2026-12-08",
+    "checkoutUrl": "https://example.com/checkout"
+  }
+}

@@ -6,6 +6,7 @@
     "test": "pnpm -r test"
   },
   "devDependencies": {
+    "tsx": "^4.23.15",
     "typescript": "^5.9.3",
     "vitest": "^2.1.9"
   }

@@ -4,3 +4,6 @@ dist/
 .wrangler/
 test-results/
 playwright-report/
+templates/tpl-*/render.js
+templates/tpl-*/base.css
+templates/test/__shots__/
