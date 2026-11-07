@@ -17,7 +17,7 @@ async function mkSession(deps: ReturnType<typeof makeTestDeps>, id = 's1', extra
   await putJson(deps.kv, `sess:${id}`, s, 3600);
   return s;
 }
-function upload(sessionId: string | null, data: Uint8Array, name: string, type: string) {
+function upload(sessionId: string | null, data: Uint8Array<ArrayBuffer>, name: string, type: string) {
   const fd = new FormData();
   if (sessionId !== null) fd.set('sessionId', sessionId);
   fd.set('file', new File([data], name, { type }));
@@ -76,7 +76,7 @@ describe('POST /api/upload', () => {
 
   it('415 for .png whose magic bytes are not PNG', async () => {
     const deps = makeTestDeps(); await mkSession(deps);
-    const res = await handle(upload('s1', new TextEncoder().encode('not an image at all'), 'a.png', 'image/png'), deps, ctx);
+    const res = await handle(upload('s1', bytes([...new TextEncoder().encode('not an image at all')]), 'a.png'', 'image/png'), deps, ctx);
     expect(res.status).toBe(415);
   });
 
