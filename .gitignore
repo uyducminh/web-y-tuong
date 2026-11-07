@@ -1,0 +1,6 @@
+node_modules/
+.superpowers/
+dist/
+.wrangler/
+test-results/
+playwright-report/
