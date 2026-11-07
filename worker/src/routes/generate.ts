@@ -5,7 +5,8 @@ import { getJson, putJson } from '../kv';
 import { fallbackProposal, generateContent, templateFor } from '../ai/generate';
 import { overDailyCap } from '../ai/cost';
 import {
-  type JobRecord, PHONE_TTL, SESSION_TTL_WITH_SITE, loadJob, pagesUrl, publicJob, queueKey, quietly, saveJob, utf8ToBase64, JOB_TTL,
+  type JobRecord, PHONE_TTL, SESSION_TTL_WITH_SITE, STALL_MS, JOB_TTL,
+  failUnpublished, loadJob, pagesUrl, publicJob, queueKey, quietly, saveJob, setStage, utf8ToBase64,
 } from '../jobs';
 
 const NO_SESSION = 'Không tìm thấy phiên trò chuyện. Vui lòng tải lại trang để bắt đầu lại.';
@@ -26,7 +27,7 @@ export async function postGenerate(req: Request, deps: Deps, ctx: ExecutionConte
   // Idempotent per session: return the existing job unless it failed before anything was published.
   if (s.jobId) {
     const prev = await loadJob(deps, s.jobId);
-    if (prev && !(prev.state === 'failed' && !prev.published)) return json({ jobId: prev.id });
+    if (prev && !(prev.state === 'failed' && prev.stage !== 'published')) return json({ jobId: prev.id });
   }
 
   const phone = typeof body.phone === 'string' ? normalizePhone(body.phone) : null;
@@ -55,6 +56,7 @@ export async function postGenerate(req: Request, deps: Deps, ctx: ExecutionConte
   const job: JobRecord = {
     id: deps.rand(20), siteId, state: queued ? 'queued' : 'pending',
     kind: 'generate', sessionId: s.id, phone, name, createdAt: now.toISOString(),
+    stage: 'queued', stageAt: now.toISOString(),
   };
   await saveJob(deps, job);
   s.jobId = job.id; s.siteId = siteId;
@@ -79,59 +81,72 @@ async function loadUploads(deps: Deps, s: Session): Promise<{ path: string; base
 }
 
 /**
- * Does the heavy work of a generate job: AI content (or deterministic fallback) → KV → publisher.create → Sheet + notify.
- * Runs for `queued` jobs (cron) and fresh `pending` jobs that have not started; any other job is returned unchanged.
+ * Staged, resumable generate pipeline: queued → ai → ai_done → publishing → published.
+ * Each call continues from the stored stage (AI output is persisted at ai_done, so publishing can resume without Claude).
+ * Safe to call repeatedly: finished/failed jobs and stages touched within STALL_MS (another runner active) are left alone.
+ * Used by POST /api/generate (waitUntil), GET /api/status (stall recovery) and the cron (queued jobs).
  */
 export async function runGenerateJob(deps: Deps, jobId: string): Promise<Job> {
   const job = await loadJob(deps, jobId);
   if (!job) throw new Error(`job ${jobId} not found`);
-  if (job.kind !== 'generate' || !(job.state === 'queued' || (job.state === 'pending' && !job.startedAt))) return publicJob(job);
+  if (job.kind !== 'generate' || job.state === 'ready' || job.state === 'failed' || job.stage === 'published') return publicJob(job);
+  const active = (job.stage === 'ai' || job.stage === 'publishing') && deps.now().getTime() - Date.parse(job.stageAt) <= STALL_MS;
+  if (active) return publicJob(job);
 
-  const now = deps.now();
-  job.state = 'pending'; job.startedAt = now.toISOString();
-  await saveJob(deps, job);
-  await deps.kv.delete(queueKey(job.id));
-
-  const { siteId } = job;
   try {
     const s = await getJson<Session>(deps.kv, `sess:${job.sessionId}`);
-    const meta = await getJson<SiteMeta>(deps.kv, `site:${siteId}`);
+    const meta = await getJson<SiteMeta>(deps.kv, `site:${job.siteId}`);
     if (!s || !meta) throw new Error(`missing session/site for job ${jobId}`);
 
-    let site: SiteJson; let proposal: Proposal;
-    try {
-      ({ site, proposal } = await generateContent(deps, s, siteId));
-    } catch (e) {
-      console.error('generateContent failed, using defaults', e);
-      site = defaultSite(templateFor(s.brief), s.brief, siteId, now);
-      proposal = fallbackProposal(deps, s.brief);
+    if (job.stage === 'queued' || job.stage === 'ai') {
+      job.state = 'pending';
+      job.startedAt ??= deps.now().toISOString();
+      await setStage(deps, job, 'ai');
+      await deps.kv.delete(queueKey(job.id));
+      await runAi(deps, s, job.siteId);
+      await setStage(deps, job, 'ai_done');
     }
-    await putJson(deps.kv, `sess:${s.id}`, s, SESSION_TTL_WITH_SITE);
-    site = { ...site, demo: { ...site.demo, checkoutUrl: `${deps.config.webOrigin}/proposal.html?site=${siteId}` } };
 
-    await putJson(deps.kv, `sitejson:${siteId}`, site);
-    await putJson(deps.kv, `proposal:${siteId}`, proposal);
-
+    await setStage(deps, job, 'publishing');
+    const site = await getJson<SiteJson>(deps.kv, `sitejson:${job.siteId}`);
+    if (!site) throw new Error(`sitejson missing for ${job.siteId}`);
     const files = [{ path: 'site.json', base64: utf8ToBase64(JSON.stringify(site, null, 2)) }, ...(await loadUploads(deps, s))];
-    await deps.publisher.create({ repoName: meta.repo, template: site.template, files });
-    job.published = true;
-    await saveJob(deps, job);
+    try {
+      await deps.publisher.create({ repoName: meta.repo, template: site.template, files });
+    } catch (e) {
+      // Leave the stage as `publishing`: the next status poll resumes after STALL_MS; status gives up after 10 minutes.
+      console.error('publish failed, will resume', e);
+      return publicJob(job);
+    }
+    await setStage(deps, job, 'published');
 
     const demoUrl = pagesUrl(deps.config, meta.repo);
-    const leadUrl = `${deps.config.apiBase}/leads/${siteId}?key=${meta.leadKey}`;
+    const leadUrl = `${deps.config.apiBase}/leads/${job.siteId}?key=${meta.leadKey}`;
     await quietly(() => deps.sheet.append({
-      thoi_gian: now.toISOString(), ten: job.name, sdt: job.phone, nhu_cau: s.brief.nhu_cau ?? '',
-      link_demo: demoUrl, link_lead: leadUrl, trang_thai: 'demo', siteId,
+      thoi_gian: deps.now().toISOString(), ten: job.name, sdt: job.phone, nhu_cau: s.brief.nhu_cau ?? '',
+      link_demo: demoUrl, link_lead: leadUrl, trang_thai: 'demo', siteId: job.siteId,
     }));
     await quietly(() => deps.notify.send(
       `Demo mới: ${job.name} – ${job.phone}\nNhu cầu: ${s.brief.nhu_cau ?? '(chưa rõ)'}\nDemo: ${demoUrl}\nLead: ${leadUrl}`));
   } catch (e) {
     console.error('runGenerateJob failed', e);
-    job.state = 'failed'; job.error = GEN_FAILED;
-    await saveJob(deps, job);
-    // Nothing went live: free the phone so the customer can retry.
-    if (!job.published) await deps.kv.delete(`phone:${job.phone}`);
-    await quietly(() => deps.notify.send(`LỖI tạo demo ${siteId}: ${job.name} – ${job.phone}. ${(e as Error)?.message ?? e}`));
+    await failUnpublished(deps, job, GEN_FAILED, (e as Error)?.message ?? String(e));
   }
   return publicJob(job);
+}
+
+/** AI stage: content (or deterministic fallback when Claude is down) → session, sitejson:, proposal:. */
+async function runAi(deps: Deps, s: Session, siteId: string): Promise<void> {
+  let site: SiteJson; let proposal: Proposal;
+  try {
+    ({ site, proposal } = await generateContent(deps, s, siteId));
+  } catch (e) {
+    console.error('generateContent failed, using defaults', e);
+    site = defaultSite(templateFor(s.brief), s.brief, siteId, deps.now());
+    proposal = fallbackProposal(deps, s.brief);
+  }
+  await putJson(deps.kv, `sess:${s.id}`, s, SESSION_TTL_WITH_SITE);
+  site = { ...site, demo: { ...site.demo, checkoutUrl: `${deps.config.webOrigin}/proposal.html?site=${siteId}` } };
+  await putJson(deps.kv, `sitejson:${siteId}`, site);
+  await putJson(deps.kv, `proposal:${siteId}`, proposal);
 }

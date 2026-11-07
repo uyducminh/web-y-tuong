@@ -4,6 +4,7 @@ import { makeTestDeps, TEST_ORIGIN } from './fakes';
 import { handle } from '../src/index';
 import { getJson, putJson } from '../src/kv';
 import { runGenerateJob } from '../src/routes/generate';
+import type { JobRecord } from '../src/jobs';
 import type { Deps, Job, Session, SiteMeta } from '../src/types';
 
 // Expected failure paths log via console.error; keep test output clean.
@@ -202,17 +203,39 @@ describe('POST /api/generate', () => {
     expect((await getJson<Job>(deps.kv, `job:${data.jobId}`))!.state).toBe('pending');
   });
 
-  it('marks the job failed and notifies when publishing fails', async () => {
+  it('(a) unpublished job gives up after 10 min, releases the phone, and the same session can retry', async () => {
     const publisher = recPublisher({ create: vi.fn<P['create']>(async () => { throw new Error('gh down'); }) });
     const { deps, notify } = mkDeps({ publisher });
     await seedSession(deps, 'sH');
-    const { data } = await generate(deps, { sessionId: 'sH', phone: '0912000444', name: 'Lan' });
-    const job = (await getJson<Job>(deps.kv, `job:${data.jobId}`))!;
-    expect(job.state).toBe('failed');
-    expect(job.error).toBeTruthy();
+    const first = await generate(deps, { sessionId: 'sH', phone: '0912000444', name: 'Lan' });
+    let job = (await getJson<JobRecord>(deps.kv, `job:${first.data.jobId}`))!;
+    expect(job).toMatchObject({ state: 'pending', stage: 'publishing' });
+    expect(notify.send).not.toHaveBeenCalled();
+
+    const t0 = deps.now().getTime();
+    deps.now = () => new Date(t0 + 11 * 60_000);
+    const st = await status(deps, first.data.jobId);
+    expect(st.state).toBe('failed');
+    expect(st.error).toBeTruthy();
+    expect(await deps.kv.get('phone:0912000444')).toBeNull();
     expect(notify.send).toHaveBeenCalledTimes(1);
+
+    publisher.create.mockImplementation(async (o) => ({ repo: o.repoName }));
+    const second = await generate(deps, { sessionId: 'sH', phone: '0912000444', name: 'Lan' });
+    expect(second.res.status).toBe(200);
+    expect(second.data.jobId).not.toBe(first.data.jobId);
+    job = (await getJson<JobRecord>(deps.kv, `job:${second.data.jobId}`))!;
+    expect(job).toMatchObject({ state: 'pending', stage: 'published' });
+    expect(publisher.create).toHaveBeenCalledTimes(2);
   });
 });
+
+async function status(deps: Deps, jobId: string) {
+  const { ctx, flush } = mkCtx();
+  const res = await handle(req('GET', `/api/status/${jobId}`), deps, ctx);
+  await flush();
+  return (await res.json()) as any;
+}
 
 describe('GET /api/status/:jobId', () => {
   it('becomes ready when Pages is built and stores the url on SiteMeta', async () => {
@@ -244,6 +267,54 @@ describe('GET /api/status/:jobId', () => {
     expect(body.state).toBe('failed');
     expect(body.error).toBeTruthy();
     expect(notify.send).toHaveBeenCalledTimes(1);
+  });
+
+  it('(b) Pages timeout counts from publishedAt, not startedAt', async () => {
+    const { deps, notify, publisher } = mkDeps();
+    const { siteId } = await seedSite(deps);
+    const t = deps.now().getTime();
+    const ago = (ms: number) => new Date(t - ms).toISOString();
+    await putJson(deps.kv, 'job:jb', { id: 'jb', siteId, state: 'pending', kind: 'generate', sessionId: 'sR', phone: '0912345678',
+      name: 'Lan', createdAt: ago(300_000), startedAt: ago(300_000), stage: 'published', stageAt: ago(60_000), publishedAt: ago(60_000) } satisfies JobRecord);
+    expect((await status(deps, 'jb')).state).toBe('pending');
+    expect(publisher.status).toHaveBeenCalledWith(siteId);
+    expect(notify.send).not.toHaveBeenCalled();
+    deps.now = () => new Date(t + 121_000);
+    expect((await status(deps, 'jb')).state).toBe('failed');
+    expect(notify.send).toHaveBeenCalledTimes(1);
+    expect(await deps.kv.get('phone:0912345678')).toBeNull(); // never reserved here; and Pages timeout must not touch it
+  });
+
+  it('(c) a job stalled at ai_done is resumed by status polling without calling Claude', async () => {
+    const claude = { callTool: vi.fn(async () => { throw new Error('Claude must not be called'); }) } as any;
+    const { deps, publisher, sheet } = mkDeps({ claude });
+    const { siteId } = await seedSite(deps);
+    await putJson(deps.kv, 'phone:0912345678', siteId);
+    const t = deps.now().getTime();
+    const ago = (ms: number) => new Date(t - ms).toISOString();
+    const base: JobRecord = { id: 'jc', siteId, state: 'pending', kind: 'generate', sessionId: 'sR', phone: '0912345678',
+      name: 'Lan', createdAt: ago(120_000), startedAt: ago(120_000), stage: 'ai_done', stageAt: ago(10_000) };
+    await putJson(deps.kv, 'job:jc', base);
+    expect((await status(deps, 'jc')).state).toBe('pending');
+    expect(publisher.create).not.toHaveBeenCalled(); // not stalled yet
+
+    // another runner is mid-publish (touched 10s ago): runGenerateJob leaves it alone
+    await putJson(deps.kv, 'job:jc', { ...base, stage: 'publishing' });
+    await runGenerateJob(deps, 'jc');
+    expect(publisher.create).not.toHaveBeenCalled();
+
+    await putJson(deps.kv, 'job:jc', { ...base, stageAt: ago(60_000) });
+    expect((await status(deps, 'jc')).state).toBe('pending');
+    expect(publisher.create).toHaveBeenCalledTimes(1);
+    const arg = publisher.create.mock.calls[0][0];
+    expect(arg.repoName).toBe(siteId);
+    expect(arg.files.map((f) => f.path)).toEqual(['site.json']);
+    expect(claude.callTool).not.toHaveBeenCalled();
+    const job = (await getJson<JobRecord>(deps.kv, 'job:jc'))!;
+    expect(job.stage).toBe('published');
+    expect(job.publishedAt).toBe(new Date(t).toISOString());
+    expect(sheet.append).toHaveBeenCalledTimes(1);
+    expect(await deps.kv.get('phone:0912345678')).not.toBeNull();
   });
 
   it('404 for unknown job', async () => {

@@ -175,6 +175,16 @@ describe('GithubPublisher.create', () => {
     expect(refs[0].body).toMatchObject({ sha: 'newcommit' });
   });
 
+  it('(d) treats 422 on /generate (repo already exists, resumed publish) as existing and completes', async () => {
+    const { calls, pub } = setup((c) => c.path.endsWith('/generate') ? { status: 422, body: { message: 'Name already exists on this account' } }
+      : c.path.endsWith('/pages') && c.method === 'POST' ? { status: 409, body: { message: 'already enabled' } } : undefined);
+    await expect(pub.create({ repoName: 'demo-htx-abcd', template: 'tpl-thu-lead', files })).resolves.toEqual({ repo: 'demo-htx-abcd' });
+    expect(calls.filter((c) => c.path.endsWith('/generate'))).toHaveLength(1);
+    expect(calls.filter((c) => c.method === 'PATCH')).toHaveLength(1);
+    expect(calls.filter((c) => c.path.endsWith('/pages'))).toHaveLength(1);
+    expect(sleeps).toEqual([]);
+  });
+
   it('retries when a blob first returns 404 (repo not ready yet)', async () => {
     const { calls, pub } = setup((c, n) => c.path.endsWith('/git/blobs') && n === 1 ? { status: 404, body: { message: 'Not Found' } } : undefined);
     await pub.create({ repoName: 'demo-htx-abcd', template: 'tpl-thu-lead', files });

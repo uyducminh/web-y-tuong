@@ -32,10 +32,10 @@ export function makeGithubPublisher(o: GithubPublisherOpts): Publisher {
   const repoPath = (repo: string) => `/repos/${org}/${repo}`;
 
   /** A freshly generated repo answers 404/409 for a few seconds; retry those every 2s, at most 5 times. */
-  async function whenReady<T>(fn: () => Promise<T>): Promise<T> {
+  async function whenReady<T>(fn: () => Promise<T>, statuses: number[] = [404, 409]): Promise<T> {
     for (let i = 0; ; i++) {
       try { return await fn(); } catch (e) {
-        if (!(e instanceof GithubError) || (e.status !== 404 && e.status !== 409) || i >= NOT_READY_RETRIES) throw e;
+        if (!(e instanceof GithubError) || !statuses.includes(e.status) || i >= NOT_READY_RETRIES) throw e;
         await sleep(NOT_READY_DELAY_MS);
       }
     }
@@ -64,15 +64,20 @@ export function makeGithubPublisher(o: GithubPublisherOpts): Publisher {
 
   return {
     async create({ repoName, template, files }) {
-      await gh.request('POST', `${repoPath(template)}/generate`, { owner: org, name: repoName, private: false });
+      try {
+        await gh.request('POST', `${repoPath(template)}/generate`, { owner: org, name: repoName, private: false });
+      } catch (e) {
+        // 422 = name already exists: a resumed publish after a previous attempt created the repo.
+        if (!(e instanceof GithubError && e.status === 422)) throw e;
+      }
       const index = await patchedIndex(template);
       const all = [...files.filter((f) => f.path !== 'index.html'), index];
       await commit(repoName, all, 'Tạo bản dùng thử');
       try {
-        await whenReady(() => gh.request('POST', `${repoPath(repoName)}/pages`, { source: { branch: 'main', path: '/' } }));
+        await whenReady(() => gh.request('POST', `${repoPath(repoName)}/pages`, { source: { branch: 'main', path: '/' } }), [404]);
       } catch (e) {
-        // 409 after retries means Pages is already enabled
-        if (!(e instanceof GithubError && e.status === 409)) throw e;
+        // 409/422 = Pages already enabled (resumed publish)
+        if (!(e instanceof GithubError && (e.status === 409 || e.status === 422))) throw e;
       }
       return { repo: repoName };
     },

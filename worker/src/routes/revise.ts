@@ -51,7 +51,7 @@ export async function postRevise(req: Request, deps: Deps): Promise<Response> {
   const now = deps.now().toISOString();
   const job: JobRecord = {
     id: deps.rand(20), siteId: meta.siteId, state: 'pending', kind: 'revise',
-    sessionId: s.id, phone: meta.phone, name: meta.name, createdAt: now, startedAt: now, published: true,
+    sessionId: s.id, phone: meta.phone, name: meta.name, createdAt: now, stage: 'published', stageAt: now, startedAt: now, publishedAt: now,
   };
   await saveJob(deps, job);
   return json({ jobId: job.id, revisionsLeft: MAX_REVISIONS - n });
