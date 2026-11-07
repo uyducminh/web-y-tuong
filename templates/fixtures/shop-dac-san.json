@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "template": "tpl-ban-hang",
+  "siteId": "shop-dac-san-ef56",
+  "brand": {
+    "name": "Đặc sản Tây Nguyên",
+    "color": "#c62828",
+    "slogan": "Mua đặc sản chính gốc"
+  },
+  "contact": {
+    "phone": "0905123456",
+    "zalo": "0905123456",
+    "address": "12 Lê Lợi, Pleiku, Gia Lai"
+  },
+  "seo": {
+    "title": "Đặc sản Tây Nguyên",
+    "description": "Shop đặc sản Tây Nguyên"
+  },
+  "hero": {
+    "title": "Đặc sản Tây Nguyên chính gốc",
+    "subtitle": "Giao hàng toàn quốc, đặt qua Zalo trong 1 phút",
+    "cta": "Xem sản phẩm"
+  },
+  "sections": [
+    {
+      "type": "products",
+      "title": "Sản phẩm",
+      "items": [
+        {
+          "name": "Mật ong rừng 500ml",
+          "desc": "Nguyên chất 100%",
+          "price": 250000,
+          "image": "/fixtures/img/p1.svg"
+        },
+        {
+          "name": "Hạt macca 1kg",
+          "desc": "Sấy giòn, không chất bảo quản",
+          "price": 320000,
+          "image": "/fixtures/img/p2.svg"
+        },
+        {
+          "name": "Bơ sáp Đắk Lắk",
+          "desc": "Cơm dày, béo ngậy",
+          "price": 70000,
+          "image": "/fixtures/img/p3.svg"
+        },
+        {
+          "name": "Tiêu đen Chư Sê 200g",
+          "desc": "Cay nồng, thơm",
+          "price": 95000
+        }
+      ]
+    },
+    {
+      "type": "order_zalo",
+      "title": "Đặt hàng qua Zalo",
+      "button": "Đặt qua Zalo"
+    },
+    {
+      "type": "contact",
+      "title": "Liên hệ"
+    }
+  ],
+  "demo": {
+    "badge": true,
+    "expires": "2026-12-08",
+    "checkoutUrl": "https://example.com/checkout"
+  }
+}

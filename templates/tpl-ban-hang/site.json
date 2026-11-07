@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "template": "tpl-ban-hang",
+  "siteId": "mau-tpl-ban-hang",
+  "brand": {
+    "name": "Tên đơn vị của bạn",
+    "color": "#2E7D32"
+  },
+  "contact": {
+    "phone": "0900000000",
+    "zalo": "0900000000"
+  },
+  "seo": {
+    "title": "Tên đơn vị của bạn",
+    "description": "Sản phẩm chính"
+  },
+  "hero": {
+    "title": "Tên đơn vị của bạn",
+    "subtitle": "Sản phẩm chính",
+    "cta": "Xem sản phẩm"
+  },
+  "sections": [
+    {
+      "type": "products",
+      "title": "Sản phẩm",
+      "items": [
+        {
+          "name": "Sản phẩm chính",
+          "desc": "Mô tả sản phẩm",
+          "price": 0,
+          "image": ""
+        }
+      ]
+    },
+    {
+      "type": "order_zalo",
+      "title": "Đặt hàng qua Zalo",
+      "button": "Đặt qua Zalo"
+    },
+    {
+      "type": "contact",
+      "title": "Liên hệ"
+    }
+  ],
+  "demo": {
+    "badge": true,
+    "expires": "2026-12-08",
+    "checkoutUrl": ""
+  }
+}

@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "template": "tpl-thu-lead",
+  "siteId": "mau-tpl-thu-lead",
+  "brand": {
+    "name": "Tên đơn vị của bạn",
+    "color": "#2E7D32"
+  },
+  "contact": {
+    "phone": "0900000000",
+    "zalo": "0900000000"
+  },
+  "seo": {
+    "title": "Tên đơn vị của bạn",
+    "description": "Sản phẩm chính"
+  },
+  "hero": {
+    "title": "Tên đơn vị của bạn",
+    "subtitle": "Sản phẩm chính",
+    "cta": "Đăng ký ngay"
+  },
+  "sections": [
+    {
+      "type": "offer",
+      "title": "Ưu đãi",
+      "body": "Để lại thông tin để nhận ưu đãi."
+    },
+    {
+      "type": "benefits",
+      "title": "Lợi ích",
+      "items": [
+        {
+          "title": "Chất lượng",
+          "desc": "Cam kết chất lượng"
+        }
+      ]
+    },
+    {
+      "type": "lead_form",
+      "title": "Đăng ký nhận tư vấn",
+      "button": "Gửi thông tin"
+    },
+    {
+      "type": "testimonials",
+      "title": "Khách hàng nói gì",
+      "items": []
+    },
+    {
+      "type": "faq",
+      "title": "Câu hỏi thường gặp",
+      "items": [
+        {
+          "q": "Làm sao để đặt hàng?",
+          "a": "Liên hệ với chúng tôi qua điện thoại hoặc Zalo."
+        }
+      ]
+    },
+    {
+      "type": "countdown",
+      "title": "Ưu đãi kết thúc sau",
+      "endsAt": ""
+    }
+  ],
+  "demo": {
+    "badge": true,
+    "expires": "2026-12-08",
+    "checkoutUrl": ""
+  }
+}

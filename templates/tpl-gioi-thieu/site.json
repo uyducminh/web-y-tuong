@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "template": "tpl-gioi-thieu",
+  "siteId": "mau-tpl-gioi-thieu",
+  "brand": {
+    "name": "Tên đơn vị của bạn",
+    "color": "#2E7D32"
+  },
+  "contact": {
+    "phone": "0900000000",
+    "zalo": "0900000000"
+  },
+  "seo": {
+    "title": "Tên đơn vị của bạn",
+    "description": "Sản phẩm chính"
+  },
+  "hero": {
+    "title": "Tên đơn vị của bạn",
+    "subtitle": "Sản phẩm chính",
+    "cta": "Liên hệ"
+  },
+  "sections": [
+    {
+      "type": "about",
+      "title": "Về Tên đơn vị của bạn",
+      "body": "Giới thiệu ngắn về đơn vị của bạn."
+    },
+    {
+      "type": "products",
+      "title": "Sản phẩm",
+      "items": [
+        {
+          "name": "Sản phẩm chính",
+          "desc": "Mô tả sản phẩm",
+          "price": 0,
+          "image": ""
+        }
+      ]
+    },
+    {
+      "type": "certs",
+      "title": "Chứng nhận",
+      "items": [
+        {
+          "name": "Chứng nhận chất lượng"
+        }
+      ]
+    },
+    {
+      "type": "gallery",
+      "title": "Hình ảnh",
+      "images": []
+    },
+    {
+      "type": "map",
+      "title": "Bản đồ"
+    },
+    {
+      "type": "contact",
+      "title": "Liên hệ"
+    }
+  ],
+  "demo": {
+    "badge": true,
+    "expires": "2026-12-08",
+    "checkoutUrl": ""
+  }
+}
