@@ -84,21 +84,31 @@ export async function smoke(apiBaseRaw: string, env: Record<string, string | und
     r = await call(base, 'status', `/api/status/${jobId}`);
     expect('status', r.status === 200, `status ${r.status}: ${r.text.slice(0, 200)}`);
     if (r.data.state === 'failed') throw new SmokeError('status', `job failed: ${r.data.error ?? ''}`);
+    if (r.data.state === 'queued') throw new SmokeError('status', 'daily AI cap reached (job queued); retry after the cap resets or raise DAILY_CAP_USD');
     if (r.data.state === 'ready' && r.data.url) { demoUrl = r.data.url; siteId = r.data.siteId; break; }
     await sleep(6000);
   }
   expect('status', demoUrl && siteId, 'timed out waiting for state=ready');
 
   log(`8/9 fetch demo ${demoUrl} (GitHub Pages may need a minute)`);
-  let html = '';
-  for (let i = 0; i < 30; i++) {
-    try {
-      const res = await fetch(demoUrl, { headers: { 'cache-control': 'no-cache' } });
-      if (res.ok) { html = await res.text(); if (html.includes('Chè Thái Nguyên')) break; }
-    } catch { /* retry */ }
-    await sleep(10000);
-  }
-  expect('demo page', html.includes('Chè Thái Nguyên'), 'demo page did not load or does not contain the unit name');
+  const pageUrl = demoUrl.endsWith('/') ? demoUrl : demoUrl + '/';
+  // Pages renders client-side from site.json, so check the HTML is served (200) and site.json is valid.
+  const getOk = async (u: string): Promise<Response | null> => {
+    for (let i = 0; i < 30; i++) {
+      try { const res = await fetch(u, { headers: { 'cache-control': 'no-cache' } }); if (res.ok) return res; } catch { /* retry */ }
+      await sleep(10000);
+    }
+    return null;
+  };
+  const page = await getOk(pageUrl);
+  expect('demo page', page, `${pageUrl} did not return 200`);
+  const siteRes = await getOk(pageUrl + 'site.json');
+  expect('demo site.json', siteRes, `${pageUrl}site.json did not return 200`);
+  let site: any;
+  try { site = JSON.parse(await siteRes.text()); } catch { throw new SmokeError('demo site.json', 'site.json is not valid JSON'); }
+  expect('demo site.json', site && site.siteId === siteId, `siteId mismatch: expected ${siteId}, got ${site?.siteId}`);
+  expect('demo site.json', typeof site.brand?.name === 'string' && site.brand.name.trim() !== '', 'brand.name is empty');
+  if (site.brand.name !== UNIT_NAME) log(`warning: brand.name "${site.brand.name}" differs from scripted "${UNIT_NAME}" (AI may not extract it verbatim)`);
 
   log('9/9 lead + csv + revise');
   r = await call(base, 'lead', `/lead/${siteId}`, postJson({ name: 'Khách thử', phone: '0987654321', note: 'smoke test', website: '' }));

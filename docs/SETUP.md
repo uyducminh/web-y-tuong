@@ -132,22 +132,35 @@ Sheet có tab `leads`, cột `trang_thai` sẽ chuyển `demo` → `da_thanh_toa
 
 ## Bước 7. Khai báo secret cho Worker (`wrangler secret put`)
 
-Chạy trong thư mục `worker/` (thêm `--env staging` cho staging). Mỗi lệnh sẽ hỏi giá trị, dán vào rồi Enter:
+Chạy trong thư mục `worker/`. Mỗi lệnh sẽ hỏi giá trị, dán vào rồi Enter. Danh sách secret **không** gồm `GH_ORG` (xem lưu ý bên dưới).
+
+**Staging:**
 
 ```bash
 cd worker
-for s in ANTHROPIC_API_KEY GH_APP_ID GH_APP_PRIVATE_KEY GH_INSTALLATION_ID GH_ORG \
+for s in ANTHROPIC_API_KEY GH_APP_ID GH_APP_PRIVATE_KEY GH_INSTALLATION_ID \
          PAYOS_CLIENT_ID PAYOS_API_KEY PAYOS_CHECKSUM_KEY \
          SHEET_URL SHEET_TOKEN TELEGRAM_BOT_TOKEN TELEGRAM_CHAT_ID TURNSTILE_SECRET; do
   echo "== $s"; pnpm exec wrangler secret put $s --env staging
 done
 ```
 
-Ý nghĩa nhanh: `GH_APP_PRIVATE_KEY` = toàn bộ nội dung `key-pkcs8.pem` (cả dòng BEGIN/END); `GH_ORG` = tên org demo; `TURNSTILE_SECRET` = secret key Turnstile (staging: khoá thử ở Bước 3).
+**Production** (không có `--env`):
+
+```bash
+cd worker
+for s in ANTHROPIC_API_KEY GH_APP_ID GH_APP_PRIVATE_KEY GH_INSTALLATION_ID \
+         PAYOS_CLIENT_ID PAYOS_API_KEY PAYOS_CHECKSUM_KEY \
+         SHEET_URL SHEET_TOKEN TELEGRAM_BOT_TOKEN TELEGRAM_CHAT_ID TURNSTILE_SECRET; do
+  echo "== $s"; pnpm exec wrangler secret put $s
+done
+```
+
+Ý nghĩa nhanh: `GH_APP_PRIVATE_KEY` = toàn bộ nội dung `key-pkcs8.pem` (cả dòng BEGIN/END); `TURNSTILE_SECRET` = secret key Turnstile (staging: khoá thử ở Bước 3).
 
 Dán khoá nhiều dòng: dùng `pnpm exec wrangler secret put GH_APP_PRIVATE_KEY --env staging < key-pkcs8.pem`.
 
-> `GH_ORG` cũng có trong `[vars]` của `wrangler.toml`; đặt thành secret hoặc var đều được, chỉ cần khớp tên org.
+> `GH_ORG` (tên org demo) là **biến thường, không phải secret**. Sửa trực tiếp trong `worker/wrangler.toml`: `[vars]` (production) hoặc `[env.staging.vars]` (staging). Không chạy `wrangler secret put GH_ORG`, vì secret trùng tên với var sẽ gây xung đột.
 
 ---
 
@@ -220,7 +233,7 @@ pnpm dlx wrangler pages deploy web-main --project-name sme-mvp-staging
 pnpm smoke https://sme-mvp-worker-staging.<tài-khoản>.workers.dev
 ```
 
-Script: tạo phiên (token Turnstile thử), chat 3 lượt, upload 1 ảnh, tạo demo, chờ `ready`, mở URL demo kiểm tra có tên đơn vị, gửi 1 lead, kiểm tra CSV (thiếu khoá phải bị từ chối 403), gọi `/api/revise` một lần. Thành công in `SMOKE OK <link demo>`; thất bại thoát mã khác 0 và nêu bước lỗi.
+Script: tạo phiên (token Turnstile thử), chat 3 lượt, upload 1 ảnh, tạo demo, chờ `ready`, mở URL demo (phải trả về 200) và đọc `site.json` của demo (trang demo dựng phía trình duyệt từ file này) để kiểm tra `siteId` đúng và `brand.name` không rỗng (chỉ cảnh báo nếu khác tên trong kịch bản), gửi 1 lead, kiểm tra CSV (thiếu khoá phải bị từ chối 403), gọi `/api/revise` một lần. Thành công in `SMOKE OK <link demo>`; thất bại thoát mã khác 0 và nêu bước lỗi.
 
 - Staging phải dùng secret Turnstile thử (Bước 3).
 - Mỗi lần chạy dùng một số điện thoại ngẫu nhiên (1 demo / SĐT) và tính 1 phiên cho IP của bạn (tối đa 3 phiên/IP/ngày).
