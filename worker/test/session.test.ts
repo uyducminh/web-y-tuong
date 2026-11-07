@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { handle } from '../src/index';
 import { makeTestDeps, TEST_ORIGIN } from './fakes';
 import { getJson } from '../src/kv';
+import { BriefSchema } from '@sme/schema';
+import { vi } from 'vitest';
 import type { Session } from '../src/types';
 
 const ctx = { waitUntil() {}, passThroughOnException() {} } as unknown as ExecutionContext;
@@ -18,6 +20,7 @@ describe('POST /api/session', () => {
 
   it('creates a session stored in KV with turns 0 and 7-day TTL', async () => {
     const deps = makeTestDeps();
+    const putSpy = vi.spyOn(deps.kv, 'put');
     const res = await handle(post('/api/session', { turnstileToken: 'good' }, '3.3.3.3'), deps, ctx);
     expect(res.status).toBe(200);
     const { sessionId } = (await res.json()) as { sessionId: string };
@@ -27,7 +30,9 @@ describe('POST /api/session', () => {
     expect(s?.messages).toEqual([]);
     expect(s?.uploads).toEqual([]);
     expect(s?.docsText).toBe('');
-    expect(Object.keys(s!.brief).length).toBeGreaterThanOrEqual(0);
+    expect(s?.brief).toEqual(BriefSchema.parse({}));
+    const call = putSpy.mock.calls.find((c) => c[0] === `sess:${sessionId}`);
+    expect((call![2] as any).expirationTtl).toBe(7 * 24 * 3600);
   });
 
   it('429 with Vietnamese message from the 4th session of the same IP/day', async () => {
@@ -68,5 +73,9 @@ describe('router', () => {
     expect(pre.headers.get('access-control-allow-origin')).toBe(TEST_ORIGIN);
     expect(pre.headers.get('access-control-allow-methods')).toContain('POST');
     expect(pre.headers.get('access-control-allow-origin')).not.toBe('*');
+    const evil = await handle(new Request('https://w.test/api/nope', { headers: { Origin: 'https://evil.test' } }), deps, ctx);
+    expect(evil.headers.get('access-control-allow-origin')).toBe(TEST_ORIGIN);
+    const evilPre = await handle(new Request('https://w.test/api/session', { method: 'OPTIONS', headers: { Origin: 'https://evil.test' } }), deps, ctx);
+    expect(evilPre.headers.get('access-control-allow-origin')).toBe(TEST_ORIGIN);
   });
 });

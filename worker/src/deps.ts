@@ -14,7 +14,7 @@ export function configFromEnv(env: Env): Config {
     genModel: env.GEN_MODEL || 'claude-sonnet-5-5',
     priceInPerMTok: parseJson(env.PRICE_IN_PER_MTOK, {}),
     priceOutPerMTok: parseJson(env.PRICE_OUT_PER_MTOK, {}),
-    dailyCapUsd: Number(env.DAILY_CAP_USD ?? 10) || 10,
+    dailyCapUsd: env.DAILY_CAP_USD !== undefined && env.DAILY_CAP_USD !== '' && Number.isFinite(Number(env.DAILY_CAP_USD)) ? Number(env.DAILY_CAP_USD) : 10,
     packages: parseJson(env.PACKAGES, []),
     allowTestPrice: env.ALLOW_TEST_PRICE === '1',
     publisher: env.PUBLISHER === 'cloudflare' ? 'cloudflare' : 'github',
@@ -31,17 +31,25 @@ const payosStub: PayosClient = { createLink: async () => ni(), verifyWebhook: ()
 const sheetStub: SheetClient = { append: async () => ni(), update: async () => ni() };
 const notifyStub: Notifier = { send: async () => ni() };
 
+/** Unbiased [a-z0-9] string via rejection sampling (252 = 7*36). */
+export function randString(n: number): string {
+  const alphabet = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  let s = '';
+  while (s.length < n) {
+    for (const b of crypto.getRandomValues(new Uint8Array(n * 2))) {
+      if (b >= 252) continue;
+      s += alphabet[b % 36];
+      if (s.length === n) break;
+    }
+  }
+  return s;
+}
+
 export function makeDeps(env: Env): Deps {
   return {
     kv: env.KV,
     now: () => new Date(),
-    rand: (n: number) => {
-      const alphabet = 'abcdefghijklmnopqrstuvwxyz0123456789';
-      const bytes = crypto.getRandomValues(new Uint8Array(n));
-      let s = '';
-      for (const b of bytes) s += alphabet[b % alphabet.length];
-      return s;
-    },
+    rand: randString,
     turnstile: makeTurnstile(env.TURNSTILE_SECRET as string | undefined),
     claude: claudeStub, publisher: publisherStub, payos: payosStub, sheet: sheetStub, notify: notifyStub,
     config: configFromEnv(env),
