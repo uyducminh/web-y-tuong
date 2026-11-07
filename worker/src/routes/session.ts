@@ -2,6 +2,7 @@ import type { Deps, Session } from '../types';
 import { getIp, errorJson, json, readJson } from '../http';
 import { dayStamp, incr, putJson } from '../kv';
 import { BriefSchema } from '@sme/schema';
+import { bumpStat } from '../sites';
 
 const SESSIONS_PER_IP_PER_DAY = 3;
 const SESSION_TTL = 7 * 24 * 3600;
@@ -24,5 +25,6 @@ export async function createSession(req: Request, deps: Deps): Promise<Response>
     brief: BriefSchema.parse({}), messages: [], uploads: [], docsText: '',
   };
   await putJson(deps.kv, `sess:${id}`, session, SESSION_TTL);
+  await bumpStat(deps, 'sessions');
   return json({ sessionId: id });
 }

@@ -53,7 +53,7 @@ const csvCell = (s: string) => {
 export async function getLeads(req: Request, deps: Deps, siteId: string, url: URL): Promise<Response> {
   const meta = await getJson<SiteMeta>(deps.kv, `site:${siteId}`);
   if (!meta) return errorJson(404, 'Không tìm thấy trang này.');
-  if (!safeEqual(url.searchParams.get('key') ?? '', meta.leadKey)) return errorJson(403, 'Khoá xem không đúng.');
+  if (!meta.leadKey || !safeEqual(url.searchParams.get('key') ?? '', meta.leadKey)) return errorJson(403, 'Khoá xem không đúng.');
   const leads = (await getJson<Lead[]>(deps.kv, `leads:${siteId}`)) ?? [];
   const cols: string[] = [];
   for (const l of leads) for (const k of Object.keys(l.fields)) if (!cols.includes(k)) cols.push(k);

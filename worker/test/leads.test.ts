@@ -90,6 +90,13 @@ describe('GET /leads/:siteId', () => {
     expect((await handle(get('site1', ''), deps, ctx)).status).toBe(403);
     expect((await handle(get('nope', `key=${KEY}`), deps, ctx)).status).toBe(404);
   });
+  it('403 when the site has no leadKey, even with an empty key', async () => {
+    const deps = makeTestDeps();
+    await putJson(deps.kv, 'site:nokey', { siteId: 'nokey', repo: 'r', phone: '0', leadKey: '', expires: '', paid: false,
+      revisions: 0, createdAt: '', name: 'X' } satisfies SiteMeta);
+    expect((await handle(get('nokey', 'key='), deps, ctx)).status).toBe(403);
+    expect((await handle(get('nokey', ''), deps, ctx)).status).toBe(403);
+  });
   it('HTML escapes values and sets headers', async () => {
     const deps = await seeded();
     const res = await handle(get('site1', `key=${KEY}`), deps, ctx);

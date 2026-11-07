@@ -33,6 +33,10 @@ describe('POST /api/session', () => {
     expect(s?.brief).toEqual(BriefSchema.parse({}));
     const call = putSpy.mock.calls.find((c) => c[0] === `sess:${sessionId}`);
     expect((call![2] as any).expirationTtl).toBe(7 * 24 * 3600);
+    // funnel counter, ~400-day TTL
+    expect(await deps.kv.get('stat:sessions:20261108')).toBe('1');
+    const stat = putSpy.mock.calls.find((c) => c[0] === 'stat:sessions:20261108');
+    expect((stat![2] as any).expirationTtl).toBe(400 * 24 * 3600);
   });
 
   it('429 with Vietnamese message from the 4th session of the same IP/day', async () => {
