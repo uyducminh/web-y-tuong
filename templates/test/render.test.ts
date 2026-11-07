@@ -2,7 +2,10 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { defaultSite, formatVnd, SECTION_TYPES, TEMPLATE_IDS } from '@sme/schema';
 // @ts-ignore plain JS module
-import { renderSite, safeUrl, formatVnd as jsFormatVnd, sections } from '../_shared/render.js';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+// @ts-ignore
+import { boot, renderSite, safeUrl, formatVnd as jsFormatVnd, sections } from '../_shared/render.js';
 
 const brief: any = { ten_don_vi: 'HTX Test', san_pham_chinh: 'Cà phê', lien_he: { phone: '0912345678', zalo: '0912345678', address: 'Đà Lạt' } };
 const base: any = defaultSite('tpl-gioi-thieu', brief, 'site1', new Date('2026-11-08'));
@@ -148,5 +151,25 @@ describe('renderSite', () => {
     expect(root.querySelector('.sec-map iframe')).not.toBeNull();
     renderSite({ ...base, contact: { ...base.contact, mapEmbed: 'javascript:1', address: '' }, sections: [{ type: 'map' }] }, root);
     expect(root.querySelector('.sec-map')).toBeNull();
+  });
+});
+
+describe('fix round 1', () => {
+  it('base.css forces [hidden] to display:none', () => {
+    const css = readFileSync(resolve(process.cwd(), '_shared/base.css'), 'utf8');
+    expect(css).toMatch(/\[hidden\]\s*\{[^}]*display:\s*none\s*!important/);
+  });
+  it('boot reads meta lead-endpoint', async () => {
+    const site = defaultSite('tpl-thu-lead', brief, 'abc', new Date('2026-11-08'));
+    document.head.innerHTML = '<meta name="lead-endpoint" content="https://meta.example">';
+    const fetchMock = vi.fn(async (url: string) => (url === 'site.json' ? { ok: true, json: async () => site } : { ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    await boot(root);
+    const form = root.querySelector('form[data-lead]') as HTMLFormElement;
+    form.dispatchEvent(new Event('submit', { cancelable: true }));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(fetchMock.mock.calls.map((c) => c[0])).toContain('https://meta.example/lead/abc');
+    vi.unstubAllGlobals();
+    document.head.innerHTML = '';
   });
 });

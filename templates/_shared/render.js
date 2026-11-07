@@ -370,7 +370,9 @@ export async function boot(root = document.body) {
   try {
     const res = await fetch('site.json', { cache: 'no-cache' });
     if (!res.ok) throw new Error(String(res.status));
-    renderSite(await res.json(), root);
+    const meta = document.querySelector('meta[name=lead-endpoint]');
+    const leadEndpoint = (meta && meta.getAttribute('content')) || undefined;
+    renderSite(await res.json(), root, leadEndpoint ? { leadEndpoint } : {});
   } catch (e) {
     root.replaceChildren(el('p', { class: 'boot-error', text: 'Không tải được nội dung trang. Vui lòng thử lại sau.' }));
   }

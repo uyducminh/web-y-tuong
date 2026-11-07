@@ -1,6 +1,7 @@
 /* Shared base styles, mobile-first. Brand colour comes from --brand (set by render.js). */
 :root { --brand: #2E7D32; --ink: #1f2933; --muted: #5f6c7b; --bg: #fff; --soft: #f5f7f6; --radius: 12px; }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html { scroll-behavior: smooth; }
 body { margin: 0; font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--ink); background: var(--bg); }
 img { max-width: 100%; height: auto; display: block; }
