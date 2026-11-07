@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { BriefSchema, SiteSchema, defaultSite, type SiteJson } from '@sme/schema';
 import { makeTestDeps } from './fakes';
-import { generateContent, reviseContent, sanitizeAssets } from '../src/ai/generate';
+import { generateContent, reviseContent, RevisionFailedError, sanitizeAssets } from '../src/ai/generate';
 import type { Session } from '../src/types';
 import { getJson } from '../src/kv';
 
@@ -52,6 +52,16 @@ describe('generateContent', () => {
     expect(r.site.siteId).toBe('site1');
     expect(r.site.demo.badge).toBe(true);
     expect(r.proposal.packages[0].priceVnd).toBeGreaterThanOrEqual(10_000_000);
+  });
+
+  it('fallback keeps valid brand and valid sections, drops malformed section', async () => {
+    const bad = { site: { brand: { name: 'Tốt', color: '#112233' },
+      sections: [{ type: 'faq', items: 'not-array' }, { type: 'about', title: 'ok', body: 'b' }] }, proposal: {} };
+    const r = await generateContent(makeTestDeps({ claude: fake([bad]) }), mkSession({ ten_don_vi: 'A' }), 's');
+    expect(r.usedFallback).toBe(true);
+    expect(r.site.brand.name).toBe('Tốt');
+    expect(r.site.sections.map((x) => x.type)).toContain('about');
+    expect(JSON.stringify(r.site.sections)).not.toContain('not-array');
   });
 
   it('fallback proposal filters sub-minimum packages unless allowTestPrice', async () => {
@@ -117,11 +127,10 @@ describe('reviseContent', () => {
     expect(r.demo).toEqual(orig.demo);
     expect(r.brand.name).toBe('Mới');
   });
-  it('returns original when output invalid after retry', async () => {
+  it('throws RevisionFailedError when output invalid after retry', async () => {
     const orig = defaultSite('tpl-ban-hang', BriefSchema.parse({}), 'k', new Date('2026-11-08'));
     const claude = fake([{ site: { junk: 1 } }]);
-    const r = await reviseContent(makeTestDeps({ claude }), orig, 'x', []);
-    expect(r).toEqual(orig);
+    await expect(reviseContent(makeTestDeps({ claude }), orig, 'x', [])).rejects.toBeInstanceOf(RevisionFailedError);
     expect(claude.callTool).toHaveBeenCalledTimes(2);
   });
 });

@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import {
-  BRIEF_KEYS, ProposalSchema, SiteSchema, SECTION_TYPES, briefProgress, defaultSite,
+  BRIEF_KEYS, ProposalSchema, SectionSchema, SiteSchema, SECTION_TYPES, briefProgress, defaultSite,
   type Brief, type Proposal, type SiteJson, type TemplateId,
 } from '@sme/schema';
 import type { Deps, Msg, Session } from '../types';
@@ -82,6 +82,13 @@ function fallbackProposal(deps: Deps, brief: Brief): Proposal {
   };
 }
 
+/** SectionSchema is permissive (passthrough), so check the common body fields' shapes here. */
+function sectionBodyOk(sec: Record<string, unknown>): boolean {
+  for (const k of ['items', 'images']) if (k in sec && !Array.isArray(sec[k])) return false;
+  for (const k of ['title', 'body', 'button', 'endsAt']) if (k in sec && typeof sec[k] !== 'string') return false;
+  return true;
+}
+
 function mergeFallback(base: SiteJson, ai: unknown): SiteJson {
   if (!isObj(ai)) return base;
   const out: Record<string, unknown> = { ...base };
@@ -95,12 +102,15 @@ function mergeFallback(base: SiteJson, ai: unknown): SiteJson {
   }
   if (Array.isArray(ai.sections)) {
     const types = new Set<string>(SECTION_TYPES);
-    const secs = ai.sections.filter((x) => isObj(x) && typeof x.type === 'string' && types.has(x.type));
+    const secs = ai.sections.filter((x) => isObj(x) && typeof x.type === 'string' && types.has(x.type) && SectionSchema.safeParse(x).success && sectionBodyOk(x));
     if (secs.length) out.sections = secs;
   }
   out.siteId = base.siteId; out.template = base.template; out.demo = base.demo; out.schemaVersion = 1;
   const final = SiteSchema.safeParse(out);
-  return final.success ? final.data : base;
+  if (final.success) return final.data;
+  // retry the overlay without sections before giving up on the AI parts
+  const noSections = SiteSchema.safeParse({ ...out, sections: base.sections });
+  return noSections.success ? noSections.data : base;
 }
 
 async function call<T>(deps: Deps, o: { system: string; messages: Msg[]; tool: { name: string; input_schema: object } }): Promise<unknown> {
@@ -150,7 +160,11 @@ export async function generateContent(deps: Deps, s: Session, siteId: string)
   };
 }
 
-/** Applies a customer's edit request. siteId/template/demo are kept from the original. On two invalid outputs returns the original unchanged. */
+export class RevisionFailedError extends Error {
+  constructor() { super('revision failed validation'); this.name = 'RevisionFailedError'; }
+}
+
+/** Applies a customer's edit request. siteId/template/demo are kept from the original. Throws RevisionFailedError after two invalid outputs (so callers need not consume a revision). */
 export async function reviseContent(deps: Deps, site: SiteJson, request: string, uploads: string[]): Promise<SiteJson> {
   const system = [
     'Bạn là chuyên gia thiết kế website. Nhận site.json hiện tại và yêu cầu chỉnh sửa của khách, gọi công cụ emit_site với site.json mới đầy đủ.',
@@ -169,5 +183,5 @@ export async function reviseContent(deps: Deps, site: SiteJson, request: string,
       messages.push({ role: 'user', content: `Kết quả chưa đúng schema (${err}). Hãy gọi lại emit_site với JSON đã sửa.` });
     }
   }
-  return site;
+  throw new RevisionFailedError();
 }
