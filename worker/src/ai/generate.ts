@@ -59,7 +59,7 @@ export function sanitizeAssets(site: SiteJson, uploads: string[]): SiteJson {
   return walk(site, null) as SiteJson;
 }
 
-function fallbackProposal(deps: Deps, brief: Brief): Proposal {
+export function fallbackProposal(deps: Deps, brief: Brief): Proposal {
   const { config } = deps;
   const name = brief.ten_don_vi?.trim() || 'đơn vị của bạn';
   const pkgs = config.packages

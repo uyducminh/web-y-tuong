@@ -4,6 +4,10 @@ import { corsHeaders, errorJson, withCors } from './http';
 import { createSession } from './routes/session';
 import { postChat } from './routes/chat';
 import { postUpload, postDocs } from './routes/upload';
+import { postGenerate } from './routes/generate';
+import { getStatus } from './routes/status';
+import { postRevise } from './routes/revise';
+import { getProposal } from './routes/proposal';
 
 type Handler = (req: Request, deps: Deps, ctx: ExecutionContext, url: URL) => Promise<Response>;
 type Route = { method: string; path: string | RegExp; handler: Handler };
@@ -14,6 +18,10 @@ export const routes: Route[] = [
   { method: 'POST', path: '/api/chat', handler: (req, deps) => postChat(req, deps) },
   { method: 'POST', path: '/api/upload', handler: (req, deps) => postUpload(req, deps) },
   { method: 'POST', path: '/api/docs', handler: (req, deps) => postDocs(req, deps) },
+  { method: 'POST', path: '/api/generate', handler: (req, deps, ctx) => postGenerate(req, deps, ctx) },
+  { method: 'GET', path: /^\/api\/status\/[A-Za-z0-9]{1,64}$/, handler: (_req, deps, _ctx, url) => getStatus(deps, url.pathname.split('/')[3]) },
+  { method: 'POST', path: '/api/revise', handler: (req, deps) => postRevise(req, deps) },
+  { method: 'GET', path: /^\/api\/proposal\/[a-z0-9-]{1,64}$/, handler: (_req, deps, _ctx, url) => getProposal(deps, url.pathname.split('/')[3]) },
 ];
 
 export async function handle(req: Request, deps: Deps, ctx: ExecutionContext): Promise<Response> {

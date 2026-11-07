@@ -58,5 +58,7 @@ export type Env = {
   PRICE_IN_PER_MTOK?: string; PRICE_OUT_PER_MTOK?: string; DAILY_CAP_USD?: string;
   PACKAGES?: string; ALLOW_TEST_PRICE?: string; PUBLISHER?: string; API_BASE?: string;
   TURNSTILE_SECRET?: string;
+  // GitHub App (secrets except GH_ORG): used when PUBLISHER=github
+  GH_APP_ID?: string; GH_APP_PRIVATE_KEY?: string; GH_INSTALLATION_ID?: string;
   [k: string]: unknown;
 };

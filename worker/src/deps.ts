@@ -1,6 +1,8 @@
 import type { Config, Deps, Env, Publisher, PayosClient, SheetClient, Notifier } from './types';
 import { makeTurnstile } from './clients/turnstile';
 import { makeClaudeClient } from './clients/claude';
+import { makeGithubClient } from './clients/github';
+import { makeGithubPublisher } from './publisher/github-publisher';
 
 function parseJson<T>(raw: string | undefined, fallback: T): T {
   if (!raw) return fallback;
@@ -45,13 +47,21 @@ export function randString(n: number): string {
   return s;
 }
 
+/** Real GitHub publisher when PUBLISHER=github and the App secrets are present; otherwise the stub. */
+export function publisherFromEnv(env: Env, config: Config): Publisher {
+  if (config.publisher !== 'github' || !env.GH_APP_ID || !env.GH_APP_PRIVATE_KEY || !env.GH_INSTALLATION_ID) return publisherStub;
+  const gh = makeGithubClient({ appId: env.GH_APP_ID, privateKey: env.GH_APP_PRIVATE_KEY, installationId: env.GH_INSTALLATION_ID });
+  return makeGithubPublisher({ gh, org: config.ghOrg, leadEndpoint: config.apiBase });
+}
+
 export function makeDeps(env: Env): Deps {
+  const config = configFromEnv(env);
   return {
     kv: env.KV,
     now: () => new Date(),
     rand: randString,
     turnstile: makeTurnstile(env.TURNSTILE_SECRET as string | undefined),
-    claude: makeClaudeClient({ apiKey: env.ANTHROPIC_API_KEY as string | undefined }), publisher: publisherStub, payos: payosStub, sheet: sheetStub, notify: notifyStub,
-    config: configFromEnv(env),
+    claude: makeClaudeClient({ apiKey: env.ANTHROPIC_API_KEY as string | undefined }), publisher: publisherFromEnv(env, config), payos: payosStub, sheet: sheetStub, notify: notifyStub,
+    config,
   };
 }
