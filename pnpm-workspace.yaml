@@ -2,3 +2,4 @@ packages:
   - 'packages/*'
   - 'worker'
   - 'web-main'
+  - 'templates'

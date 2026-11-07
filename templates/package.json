@@ -1,0 +1,12 @@
+{
+  "name": "@sme/templates",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "vitest run" },
+  "devDependencies": {
+    "@sme/schema": "workspace:*",
+    "jsdom": "^25.0.1",
+    "vitest": "^2.1.9"
+  }
+}
