@@ -1,6 +1,6 @@
 import { test, expect, type Page, type Route } from '@playwright/test';
 
-type Call = { path: string; method: string; body: any; at: number; done?: number };
+type Call = { path: string; method: string; body: any; raw?: Buffer | null; at: number; done?: number };
 type Handler = (call: Call, n: number) => { status?: number; json: unknown; delay?: number };
 
 /** Mocks the Worker: every request to /api/** is answered by handlers[path-without-ids] and recorded. */
@@ -9,12 +9,12 @@ async function mockApi(page: Page, handlers: Record<string, Handler>): Promise<C
   await page.route('**/api/**', async (route: Route) => {
     const req = route.request();
     const url = new URL(req.url());
-    const key = url.pathname.replace(/^\/api\/(status|proposal)\/.+$/, '/api/$1');
+    const key = url.pathname.replace(/^\/api\/(status|proposal|jobs)\/.+$/, '/api/$1');
     let body: any = null;
     const ct = req.headers()['content-type'] || '';
     if (ct.includes('application/json')) body = req.postDataJSON();
     else if (req.postData()) body = 'multipart';
-    const call: Call = { path: url.pathname, method: req.method(), body, at: Date.now() };
+    const call: Call = { path: url.pathname, method: req.method(), body, raw: req.postDataBuffer(), at: Date.now() };
     calls.push(call);
     const h = handlers[key];
     if (!h) { await route.fulfill({ status: 404, json: { error: 'không có mock' } }); return; }
@@ -234,6 +234,7 @@ test('SĐT đã có bản dùng thử: hiện link bản cũ', async ({ page }) 
 test('trang trạng thái hỏi lại đến khi ready, rồi hiện link demo, link đề xuất và ô sửa', async ({ page }) => {
   await ownSession(page, { sessionId: 'sess-1', jobId: 'job1' });
   const calls = await mockApi(page, {
+    '/api/jobs': () => ({ json: { id: 'job1', siteId: 'demo-a', state: 'pending', next: 'poll' } }),
     '/api/status': (_c, n) => ({ json: n < 2
       ? { id: 'job1', siteId: 'demo-a', state: 'pending' }
       : { id: 'job1', siteId: 'demo-a', state: 'ready', url: 'https://demo-org.github.io/demo-a/' } }),
@@ -259,16 +260,92 @@ test('trang trạng thái hỏi lại đến khi ready, rồi hiện link demo, 
 
 test('trang trạng thái: không phải phiên của mình thì không có ô sửa; lỗi thì hiện lý do', async ({ page }) => {
   await mockApi(page, {
-    '/api/status': () => ({ json: { id: 'job9', siteId: 'demo-b', state: 'ready', url: 'https://demo-org.github.io/demo-b/' } }),
+    '/api/jobs': () => ({ json: { id: 'job9', siteId: 'demo-b', state: 'ready', url: 'https://demo-org.github.io/demo-b/', next: 'done' } }),
   });
   await page.goto('/status.html?job=job9');
   await expect(page.getByRole('link', { name: 'Mở bản dùng thử' })).toBeVisible();
   await expect(page.getByLabel('Bạn muốn sửa gì?')).toHaveCount(0);
 
   await page.unrouteAll();
-  await mockApi(page, { '/api/status': () => ({ json: { id: 'job8', siteId: 'demo-c', state: 'failed', error: 'Chưa tạo được bản dùng thử.' } }) });
+  await mockApi(page, { '/api/jobs': () => ({ json: { id: 'job8', siteId: 'demo-c', state: 'failed', error: 'Chưa tạo được bản dùng thử.', next: 'done' } }) });
   await page.goto('/status.html?job=job8');
   await expect(page.getByText('Chưa tạo được bản dùng thử.')).toBeVisible();
+});
+
+test('trang trạng thái tự chạy từng bước qua POST /api/jobs/:id/run (run → wait → poll) rồi mới hỏi /api/status', async ({ page }) => {
+  const steps = [{ state: 'pending', next: 'run' }, { state: 'pending', next: 'wait' }, { state: 'pending', next: 'poll' }];
+  const calls = await mockApi(page, {
+    '/api/jobs': (_c, n) => ({ json: { id: 'job1', siteId: 'demo-a', ...steps[Math.min(n - 1, 2)] }, delay: n === 1 ? 400 : 0 }),
+    '/api/status': () => ({ json: { id: 'job1', siteId: 'demo-a', state: 'ready', url: 'https://demo-org.github.io/demo-a/' } }),
+  });
+  await page.goto('/status.html?job=job1');
+  await expect(page.getByText(/Đang tạo bản dùng thử/)).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Mở bản dùng thử' })).toBeVisible({ timeout: 15_000 });
+  const runs = calls.filter((c) => c.path === '/api/jobs/job1/run');
+  expect(runs).toHaveLength(3);
+  for (const r of runs) expect(r.method).toBe('POST');
+  expect(runs[1].at).toBeGreaterThanOrEqual(runs[0].done!); // one stage at a time, never parallel
+  expect(runs[2].at - runs[1].done!).toBeGreaterThanOrEqual(2000); // 'wait' backs off
+  const firstStatus = calls.find((c) => c.path === '/api/status/job1')!;
+  expect(firstStatus.at).toBeGreaterThanOrEqual(runs[2].done!); // status polling only after 'poll'
+});
+
+test('trang trạng thái: /run lỗi mạng hoặc 5xx thì xem /api/status rồi chạy lại', async ({ page }) => {
+  let n = 0;
+  await page.route('**/api/jobs/**', async (route) => {
+    n++;
+    if (n === 1) { await route.abort('connectionreset'); return; }
+    if (n === 2) { await route.fulfill({ status: 503, json: { error: 'bận' } }); return; }
+    await route.fulfill({ json: { id: 'job1', siteId: 'demo-a', state: 'ready', url: 'https://demo-org.github.io/demo-a/', next: 'done' } });
+  });
+  let statusCalls = 0;
+  await page.route('**/api/status/**', async (route) => {
+    statusCalls++;
+    await route.fulfill({ json: { id: 'job1', siteId: 'demo-a', state: 'pending' } });
+  });
+  await page.goto('/status.html?job=job1');
+  await expect(page.getByRole('link', { name: 'Mở bản dùng thử' })).toBeVisible({ timeout: 15_000 });
+  expect(n).toBe(3);
+  expect(statusCalls).toBe(2);
+});
+
+test('ảnh được thu nhỏ và mã hoá lại trên trình duyệt: JPEG nhỏ hơn, cạnh ≤ 1600px, không còn EXIF/GPS', async ({ page }) => {
+  const calls = await mockApi(page, { '/api/session': session, '/api/upload': () => ({ json: { path: 'assets/1-anh.jpg' } }) });
+  await page.goto('/chat.html');
+  // A 3000×2000 photo-like JPEG with an EXIF (GPS) APP1 segment inserted after SOI.
+  const b64 = await page.evaluate(async () => {
+    const c = document.createElement('canvas'); c.width = 3000; c.height = 2000;
+    const x = c.getContext('2d')!;
+    for (let i = 0; i < 4000; i++) { x.fillStyle = `hsl(${i % 360},70%,${30 + (i % 50)}%)`; x.fillRect((i * 37) % 3000, (i * 53) % 2000, 60, 40); }
+    const blob: Blob = await new Promise((r) => c.toBlob((b) => r(b!), 'image/jpeg', 0.95));
+    const u8 = new Uint8Array(await blob.arrayBuffer());
+    let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode(...u8.subarray(i, i + 0x8000));
+    return btoa(s);
+  });
+  const jpeg = Buffer.from(b64, 'base64');
+  const exifBody = Buffer.concat([Buffer.from('Exif\0\0', 'latin1'), Buffer.from('GPSLatitude=11.94;GPSLongitude=108.44;'.repeat(4))]);
+  const app1 = Buffer.concat([Buffer.from([0xff, 0xe1, (exifBody.length + 2) >> 8, (exifBody.length + 2) & 0xff]), exifBody]);
+  const original = Buffer.concat([jpeg.subarray(0, 2), app1, jpeg.subarray(2)]);
+  expect(original.length).toBeLessThan(5 * 1024 * 1024);
+  await page.locator('input[type=file]').setInputFiles({ name: 'vuon-ca-phe.jpeg', mimeType: 'image/jpeg', buffer: original });
+  await expect(page.getByText('Đã nhận 1 ảnh')).toBeVisible();
+  const up = calls.find((c) => c.path === '/api/upload')!;
+  const raw = up.raw!;
+  const head = raw.indexOf('\r\n\r\n', raw.indexOf('name="file"'));
+  const partHeaders = raw.subarray(raw.indexOf('name="file"'), head).toString('latin1');
+  expect(partHeaders).toContain('filename="vuon-ca-phe.jpg"');
+  expect(partHeaders).toMatch(/Content-Type: image\/jpeg/i);
+  const body = raw.subarray(head + 4, raw.lastIndexOf(Buffer.from('\r\n--')));
+  expect([...body.subarray(0, 3)]).toEqual([0xff, 0xd8, 0xff]); // magic bytes the Worker sniffs
+  expect(body.length).toBeLessThan(original.length);
+  expect(body.includes(Buffer.from('Exif'))).toBe(false);
+  expect(body.includes(Buffer.from('GPSLatitude'))).toBe(false);
+  const dims = await page.evaluate(async (b) => {
+    const bin = atob(b); const u8 = Uint8Array.from(bin, (ch) => ch.charCodeAt(0));
+    const bmp = await createImageBitmap(new Blob([u8], { type: 'image/jpeg' }));
+    return [bmp.width, bmp.height];
+  }, body.toString('base64'));
+  expect(dims).toEqual([1600, 1067]);
 });
 
 const proposalData = {
@@ -317,7 +394,7 @@ test.describe('375px', () => {
     test(`không tràn ngang: ${path}`, async ({ page }) => {
       await mockApi(page, {
         '/api/session': session, '/api/chat': chatReply(),
-        '/api/status': () => ({ json: { id: 'job1', siteId: 'demo-a', state: 'ready', url: 'https://demo-org.github.io/demo-a-rat-dai-de-thu-tran-ngang/' } }),
+        '/api/jobs': () => ({ json: { id: 'job1', siteId: 'demo-a', state: 'ready', url: 'https://demo-org.github.io/demo-a-rat-dai-de-thu-tran-ngang/', next: 'done' } }),
         '/api/proposal': () => ({ json: proposalData }),
       });
       await page.goto(path);

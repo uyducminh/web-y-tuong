@@ -78,8 +78,16 @@ export async function smoke(apiBaseRaw: string, env: Record<string, string | und
   expect('generate', r.status === 200 && typeof r.data.jobId === 'string', `status ${r.status}: ${r.text.slice(0, 300)} (phone ${phone})`);
   const jobId: string = r.data.jobId;
 
-  log('7/9 wait for ready (max ~10 min)');
+  log('7/9 run the job stage by stage (POST /api/jobs/:id/run, like the status page), then wait for ready (max ~10 min)');
   let demoUrl = ''; let siteId = '';
+  for (let i = 0; i < 20; i++) {
+    r = await call(base, 'run', `/api/jobs/${jobId}/run`, postJson({}));
+    expect('run', r.status === 200, `status ${r.status}: ${r.text.slice(0, 200)}`);
+    if (r.data.state === 'failed') throw new SmokeError('run', `job failed: ${r.data.error ?? ''}`);
+    if (r.data.state === 'queued') throw new SmokeError('run', 'daily AI cap reached (job queued); retry after the cap resets or raise DAILY_CAP_USD');
+    if (r.data.next === 'poll' || r.data.next === 'done') break;
+    await sleep(r.data.next === 'wait' ? 3000 : 200);
+  }
   for (let i = 0; i < 100; i++) {
     r = await call(base, 'status', `/api/status/${jobId}`);
     expect('status', r.status === 200, `status ${r.status}: ${r.text.slice(0, 200)}`);

@@ -1,4 +1,4 @@
-// Kiểm tra file ngay trên trình duyệt, tải ảnh lên LẦN LƯỢT (phiên ở Worker cập nhật không nguyên tử),
+// Kiểm tra file ngay trên trình duyệt, thu nhỏ + bỏ EXIF, tải ảnh lên LẦN LƯỢT (phiên ở Worker cập nhật không nguyên tử),
 // tách chữ PDF/Word rồi gửi phần chữ (tối đa 8.000 ký tự).
 import { api } from './api.js';
 import { docKind, extractText, MAX_CHARS } from './extract.js';
@@ -43,6 +43,53 @@ export function checkFiles(files, imagesAlready = 0) {
   return { images, docs, errors };
 }
 
+export const MAX_SIDE = 1600;
+const QUALITY = 0.85;
+
+function decode(file) {
+  if (typeof createImageBitmap === 'function') return createImageBitmap(file, { imageOrientation: 'from-image' });
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const im = new Image();
+    im.onload = () => { URL.revokeObjectURL(url); resolve(im); };
+    im.onerror = () => { URL.revokeObjectURL(url); reject(new Error('decode')); };
+    im.src = url;
+  });
+}
+const toBlob = (canvas, type) => new Promise((r) => canvas.toBlob(r, type, QUALITY));
+
+/**
+ * Thu nhỏ ảnh (cạnh dài tối đa 1600px) và mã hoá lại bằng canvas ngay trên trình duyệt: ảnh nhẹ hơn cho 3G và
+ * bỏ hết EXIF/GPS (vị trí chụp) vì bản dùng thử là công khai. JPG → JPEG chất lượng 0,85; PNG/WEBP → WEBP (giữ nền
+ * trong suốt cho logo), trình duyệt không hỗ trợ WEBP thì JPEG nền trắng. Không giải mã được → gửi ảnh gốc
+ * (Worker vẫn kiểm tra định dạng thật).
+ */
+export async function shrinkImage(file) {
+  try {
+    const src = await decode(file);
+    const w0 = src.width, h0 = src.height;
+    if (!w0 || !h0) return file;
+    const scale = Math.min(1, MAX_SIDE / Math.max(w0, h0));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(w0 * scale)); canvas.height = Math.max(1, Math.round(h0 * scale));
+    const ctx = canvas.getContext('2d');
+    const draw = (bg) => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (bg) { ctx.fillStyle = bg; ctx.fillRect(0, 0, canvas.width, canvas.height); }
+      ctx.drawImage(src, 0, 0, canvas.width, canvas.height);
+    };
+    let blob = null;
+    if (file.type !== 'image/jpeg' && !/\.jpe?g$/i.test(file.name || '')) { draw(null); blob = await toBlob(canvas, 'image/webp'); }
+    if (!blob || blob.type !== 'image/webp') { draw('#fff'); blob = await toBlob(canvas, 'image/jpeg'); }
+    if (src.close) src.close();
+    if (!blob || blob.size > MAX_IMAGE_BYTES) return file;
+    const base = (file.name || 'anh').replace(/\.[^.]*$/, '') || 'anh';
+    return new File([blob], `${base}.${blob.type === 'image/webp' ? 'webp' : 'jpg'}`, { type: blob.type });
+  } catch {
+    return file;
+  }
+}
+
 let libsPromise = null;
 function loadScript(src) {
   return new Promise((resolve, reject) => {
@@ -74,9 +121,10 @@ export async function sendFiles({ images, docs }, sessionId, ui) {
   for (let i = 0; i < images.length; i++) {
     const f = images[i];
     ui.onProgress(`Đang gửi ảnh ${i + 1}/${images.length}…`);
+    const up = await shrinkImage(f);
     const form = new FormData();
     form.append('sessionId', sessionId);
-    form.append('file', f, f.name);
+    form.append('file', up, up.name);
     const r = await api('/api/upload', { form, timeoutMs: 120000 });
     if (r.status === 404) { ui.onProgress(''); ui.onSessionLost(); return sent; } // phiên hết hạn: dừng, không gửi tiếp vào id cũ
     if (r.ok) { sent++; ui.onImage(f, r.data.path); }

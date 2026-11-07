@@ -3,6 +3,12 @@ import { api, h, loadSession, saveSession, qs, safeUrl } from './api.js';
 const FIRST_DELAY = 3000;
 const MAX_DELAY = 10000;
 const MAX_REVISIONS = 3;
+// Mỗi lần gọi /run chạy MỘT bước (AI có thể mất 1–3 phút) ngay trong yêu cầu đó → chờ lâu.
+const RUN_TIMEOUT = 180000;
+const RUN_GAP = 300;      // next: 'run' → gọi tiếp gần như ngay
+const WAIT_DELAY = 2500;  // next: 'wait' → bước khác đang chạy / GitHub lỗi tạm thời
+const DEFAULT_FAIL = 'Đội ngũ đã được thông báo và sẽ liên hệ với bạn sớm.';
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const $ = (id) => document.getElementById(id);
 const box = $('status');
@@ -49,7 +55,7 @@ function reviseBox(siteId, sessionId, left) {
     const request = area.value.trim();
     if (!request) { err.textContent = 'Vui lòng nhập nội dung bạn muốn sửa.'; err.hidden = false; return; }
     btn.disabled = true; btn.textContent = 'Đang gửi…'; err.hidden = true;
-    const r = await api('/api/revise', { json: { siteId, sessionId, request }, timeoutMs: 120000 });
+    const r = await api('/api/revise', { json: { siteId, sessionId, request }, timeoutMs: RUN_TIMEOUT });
     if (r.ok && r.data.jobId) {
       saveSession({ jobId: r.data.jobId, siteId, revisionsLeft: r.data.revisionsLeft });
       location.href = `status.html?job=${encodeURIComponent(r.data.jobId)}`;
@@ -81,19 +87,50 @@ function ready(job) {
   );
 }
 
+/** Kết thúc nếu job đã xong; trả true khi đã hiển thị kết quả. */
+function finish(job) {
+  if (job.state === 'ready') { ready(job); return true; }
+  if (job.state === 'failed') { failed(job.error || DEFAULT_FAIL); return true; }
+  return false;
+}
+
+/** Chờ GitHub Pages dựng trang (hoặc chờ hàng đợi): hỏi /api/status, giãn dần 3s → 10s. */
 async function poll(delay) {
   const r = await api(`/api/status/${encodeURIComponent(jobId)}`, { timeoutMs: 20000 });
   if (r.ok) {
-    const job = r.data;
-    if (job.state === 'ready') { ready(job); return; }
-    if (job.state === 'failed') { failed(job.error || 'Đội ngũ đã được thông báo và sẽ liên hệ với bạn sớm.'); return; }
-    waiting(job.state === 'queued');
+    if (finish(r.data)) return;
+    waiting(r.data.state === 'queued');
   } else if (r.status >= 400 && r.status < 500) {
     failed(r.data.error); return;
   }
-  // pending / queued / lỗi mạng: hỏi lại, giãn dần 3s → 10s
   setTimeout(() => poll(Math.min(Math.round(delay * 1.5), MAX_DELAY)), delay);
 }
 
+/**
+ * Trang này chạy việc tạo demo: gọi POST /api/jobs/:id/run lặp lại, mỗi lần máy chủ chạy một bước rồi trả
+ * `next`: run (gọi tiếp) · wait (đợi rồi gọi tiếp) · poll (đã đẩy lên GitHub hoặc đang xếp hàng → hỏi /api/status) · done.
+ */
+async function drive() {
+  let errors = 0;
+  for (;;) {
+    const r = await api(`/api/jobs/${encodeURIComponent(jobId)}/run`, { json: {}, timeoutMs: RUN_TIMEOUT });
+    if (r.ok) {
+      errors = 0;
+      const job = r.data;
+      if (finish(job)) return;
+      if (job.next === 'poll' || job.state === 'queued') { waiting(job.state === 'queued'); poll(FIRST_DELAY); return; }
+      waiting(false);
+      await sleep(job.next === 'wait' ? WAIT_DELAY : RUN_GAP);
+      continue;
+    }
+    if (r.status >= 400 && r.status < 500) { failed(r.data.error); return; }
+    // Mất mạng / hết giờ / lỗi máy chủ: xem trạng thái rồi thử chạy lại, giãn dần.
+    errors++;
+    const st = await api(`/api/status/${encodeURIComponent(jobId)}`, { timeoutMs: 20000 });
+    if (st.ok && finish(st.data)) return;
+    await sleep(Math.min(FIRST_DELAY * errors, MAX_DELAY));
+  }
+}
+
 if (!/^[A-Za-z0-9]{1,64}$/.test(jobId)) failed('Đường dẫn không đúng. Vui lòng mở lại link từ trang trò chuyện.');
-else { waiting(false); poll(FIRST_DELAY); }
+else { waiting(false); drive(); }
