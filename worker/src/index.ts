@@ -10,6 +10,7 @@ import { postRevise } from './routes/revise';
 import { getProposal } from './routes/proposal';
 import { postLead, getLeads } from './routes/leads';
 import { postCheckout } from './routes/checkout';
+import { runDaily } from './cron';
 import { postPayosWebhook } from './routes/payos-webhook';
 
 type Handler = (req: Request, deps: Deps, ctx: ExecutionContext, url: URL) => Promise<Response>;
@@ -51,4 +52,7 @@ export async function handle(req: Request, deps: Deps, ctx: ExecutionContext): P
 
 export default {
   fetch: (req: Request, env: Env, ctx: ExecutionContext) => handle(req, makeDeps(env), ctx),
+  scheduled: (_event: ScheduledController, env: Env, ctx: ExecutionContext) => {
+    ctx.waitUntil(runDaily(makeDeps(env)).catch((e) => console.error(e)));
+  },
 };

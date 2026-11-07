@@ -24,7 +24,8 @@ export interface Publisher {
 }
 
 export type SiteMeta = { siteId: string; repo: string; phone: string; leadKey: string; url?: string;
-  expires: string; paid: boolean; revisions: number; createdAt: string; name: string };
+  expires: string; paid: boolean; revisions: number; createdAt: string; name: string;
+  /** Set by the cron once an expired unpaid demo's repo has been deleted. */ removed?: boolean };
 
 export type Job = { id: string; siteId: string; state: 'pending' | 'ready' | 'failed' | 'queued'; url?: string; error?: string };
 

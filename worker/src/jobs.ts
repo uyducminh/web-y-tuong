@@ -65,3 +65,13 @@ export function utf8ToBase64(s: string): string {
   for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
   return btoa(bin);
 }
+
+export const GAVE_UP_MSG = 'Chưa tạo được bản dùng thử. Đội ngũ đã được thông báo; bạn có thể bấm tạo lại.';
+
+/** Gives up a pending, unpublished job that has not finished 10 minutes after it started. Returns true if it failed the job. */
+export async function giveUpIfStale(deps: Deps, job: JobRecord): Promise<boolean> {
+  if (job.state !== 'pending' || job.stage === 'published') return false;
+  if (deps.now().getTime() - Date.parse(job.startedAt ?? job.createdAt) <= UNPUBLISHED_GIVE_UP_MS) return false;
+  await failUnpublished(deps, job, GAVE_UP_MSG, `Quá 10 phút chưa đẩy lên GitHub (dừng ở bước ${job.stage}).`);
+  return true;
+}

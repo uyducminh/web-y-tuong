@@ -2,12 +2,11 @@ import type { Deps, SiteMeta } from '../types';
 import { errorJson, json } from '../http';
 import { getJson, putJson } from '../kv';
 import {
-  PAGES_TIMEOUT_MS, STALL_MS, UNPUBLISHED_GIVE_UP_MS, failUnpublished, loadJob, publicJob, quietly, saveJob,
+  PAGES_TIMEOUT_MS, STALL_MS, giveUpIfStale, loadJob, publicJob, quietly, saveJob,
 } from '../jobs';
 import { runGenerateJob } from './generate';
 
 const TIMEOUT_MSG = 'Bản dùng thử đang mất nhiều thời gian hơn dự kiến. Đội ngũ đã được thông báo và sẽ gửi link cho bạn sớm.';
-const GAVE_UP_MSG = 'Chưa tạo được bản dùng thử. Đội ngũ đã được thông báo; bạn có thể bấm tạo lại.';
 
 /**
  * Client polling drives recovery: a stalled unpublished job (waitUntil killed) is resumed in the background,
@@ -20,9 +19,8 @@ export async function getStatus(deps: Deps, ctx: ExecutionContext, jobId: string
   const now = deps.now().getTime();
 
   if (job.stage !== 'published') {
-    if (now - Date.parse(job.startedAt ?? job.createdAt) > UNPUBLISHED_GIVE_UP_MS) {
-      await failUnpublished(deps, job, GAVE_UP_MSG, `Quá 10 phút chưa đẩy lên GitHub (dừng ở bước ${job.stage}).`);
-    } else if (now - Date.parse(job.stageAt) > STALL_MS) {
+    if (await giveUpIfStale(deps, job)) { /* failed and phone released */ }
+    else if (now - Date.parse(job.stageAt) > STALL_MS) {
       ctx.waitUntil(runGenerateJob(deps, job.id).catch((e) => console.error(e)));
     }
     return json(publicJob(job));
