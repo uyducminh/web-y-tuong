@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createHmac } from 'node:crypto';
 import { handle } from '../src/index';
 import { makeTestDeps, testConfig, TEST_ORIGIN } from './fakes';
@@ -11,6 +11,9 @@ import { configFromEnv } from '../src/deps';
 import type { Deps, SiteMeta } from '../src/types';
 
 const ctx = { waitUntil() {}, passThroughOnException() {} } as unknown as ExecutionContext;
+// Expected failure paths log; keep test output clean.
+beforeEach(() => { for (const m of ['error', 'warn'] as const) vi.spyOn(console, m).mockImplementation(() => {}); });
+afterEach(() => { vi.restoreAllMocks(); });
 const KEY = 'checksum-key-test';
 const hmac = (s: string) => createHmac('sha256', KEY).update(s).digest('hex');
 
@@ -198,6 +201,15 @@ describe('POST /api/checkout', () => {
     expect(payosCalls).toHaveLength(0);
   });
 
+  it('paid:<siteId> → 409 even if site: says paid:false (rewritten by cron/revise)', async () => {
+    const { deps, payosCalls } = routeDeps();
+    const meta = await mkSite(deps);
+    await putJson(deps.kv, `paid:${meta.siteId}`, { orderCode: 1 });
+    const res = await handle(checkout({ siteId: meta.siteId, packageId: 'co-ban' }), deps, ctx);
+    expect(res.status).toBe(409);
+    expect(payosCalls).toHaveLength(0);
+  });
+
   it('already paid site → 409', async () => {
     const { deps, payosCalls } = routeDeps();
     const meta = await mkSite(deps, { paid: true });
@@ -300,13 +312,76 @@ describe('POST /webhook/payos', () => {
     expect(await getJson(deps.kv, `paidorder:${orderCode}`)).not.toBeNull();
   });
 
-  it('amount mismatch → nothing changes', async () => {
+  it('amount mismatch → not paid, but the team is alerted', async () => {
     const { deps, sheetCalls, notes } = routeDeps();
     const { meta, orderCode } = await mkOrder(deps);
-    await handle(webhook(signedWebhook(orderCode, 2000)), deps, ctx);
+    expect((await handle(webhook(signedWebhook(orderCode, 2000)), deps, ctx)).status).toBe(200);
     expect(await paidOf(deps, meta.siteId)).toBe(false);
     expect(await getJson(deps.kv, `paidorder:${orderCode}`)).toBeNull();
-    expect(sheetCalls.length + notes.length).toBe(0);
+    expect(await getJson(deps.kv, `paid:${meta.siteId}`)).toBeNull();
+    expect(sheetCalls).toHaveLength(0);
+    expect(notes).toHaveLength(1);
+    for (const x of ['không khớp', String(orderCode), '2000', '10.000.000đ', 'R1']) expect(notes[0]).toContain(x);
+  });
+
+  it('writes paid:<siteId> (no TTL), removes the expiry index entry, counts stat:paid', async () => {
+    const { deps } = routeDeps();
+    const { meta, orderCode } = await mkOrder(deps);
+    await putJson(deps.kv, 'exp:20261208:' + meta.siteId, 1);
+    await handle(webhook(signedWebhook(orderCode, 10_000_000)), deps, ctx);
+    const paid = await deps.kv.getWithMetadata(`paid:${meta.siteId}`);
+    expect(JSON.parse(paid.value!)).toMatchObject({ siteId: meta.siteId, orderCode, amount: 10_000_000, reference: 'R1' });
+    const listed = (await deps.kv.list({ prefix: `paid:${meta.siteId}` })).keys[0];
+    expect(listed.expiration).toBeUndefined();
+    expect(await deps.kv.get('exp:20261208:' + meta.siteId)).toBeNull();
+    expect(await deps.kv.get('stat:paid:20261108')).toBe('1');
+  });
+
+  it('sheet + notify happen BEFORE the paidorder marker; a KV failure after a valid signature alerts the team and answers 500, and the retry still notifies', async () => {
+    const { deps, sheetCalls, notes } = routeDeps();
+    const { meta, orderCode } = await mkOrder(deps);
+    const realKv = deps.kv;
+    let failMarker = true;
+    const events: string[] = [];
+    deps.kv = new Proxy(realKv, { get(t, k) {
+      const v = (t as any)[k];
+      if (k === 'put') return async (key: string, ...a: any[]) => {
+        if (key.startsWith('paidorder:')) { events.push('marker'); if (failMarker) throw new Error('KV 429'); }
+        return v.call(t, key, ...a);
+      };
+      return typeof v === 'function' ? v.bind(t) : v;
+    } });
+    deps.notify = { send: async (txt) => { events.push('notify'); notes.push(txt); } };
+    const r1 = await handle(webhook(signedWebhook(orderCode, 10_000_000)), deps, ctx);
+    expect(r1.status).toBe(500);
+    expect(events.indexOf('notify')).toBeLessThan(events.indexOf('marker'));
+    expect(sheetCalls).toHaveLength(1);
+    expect(notes).toHaveLength(2); // paid notice + failure alert
+    expect(notes[1]).toContain('CẢNH BÁO');
+    for (const x of [String(orderCode), '10000000', 'R1']) expect(notes[1]).toContain(x);
+    expect(await getJson(realKv, `paid:${meta.siteId}`)).not.toBeNull(); // already protected from the cron
+    expect(await getJson(realKv, `paidorder:${orderCode}`)).toBeNull();
+
+    failMarker = false; // PayOS retries
+    const r2 = await handle(webhook(signedWebhook(orderCode, 10_000_000)), deps, ctx);
+    expect(r2.status).toBe(200);
+    expect(notes.filter((n) => n.startsWith('ĐÃ THANH TOÁN'))).toHaveLength(2); // duplicate notice is acceptable
+    expect(await getJson(realKv, `paidorder:${orderCode}`)).not.toBeNull();
+  });
+
+  it('a KV read failure after a valid signature still alerts the team', async () => {
+    const { deps, notes } = routeDeps();
+    const { orderCode } = await mkOrder(deps);
+    const realKv = deps.kv;
+    deps.kv = new Proxy(realKv, { get(t, k) {
+      const v = (t as any)[k];
+      if (k === 'get') return async () => { throw new Error('KV down'); };
+      return typeof v === 'function' ? v.bind(t) : v;
+    } });
+    const r = await handle(webhook(signedWebhook(orderCode, 10_000_000)), deps, ctx);
+    expect(r.status).toBe(500);
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toContain(String(orderCode));
   });
 
   it('code != 00 → nothing changes', async () => {
