@@ -13,3 +13,22 @@ GH_ORG = "sme-demos"
 
 [triggers]
 crons = ["0 3 * * *"]
+
+# Staging: dùng org GitHub test riêng + KV riêng. Wrangler KHÔNG kế thừa vars/kv/triggers sang env, nên khai báo lại.
+# Deploy: pnpm --filter @sme/worker exec wrangler deploy --env staging
+# Secrets: wrangler secret put <TÊN> --env staging
+[env.staging]
+name = "sme-mvp-worker-staging"
+
+[[env.staging.kv_namespaces]]
+binding = "KV"
+id = "REPLACE_WITH_STAGING_KV_NAMESPACE_ID"
+
+[env.staging.vars]
+WEB_ORIGIN = "https://sme-mvp-staging.pages.dev"
+GH_ORG = "sme-demos-staging"
+ALLOW_TEST_PRICE = "1"   # CHỈ staging: cho phép gói giá thấp (vd 2.000đ) để thử thanh toán thật
+# API_BASE = "https://sme-mvp-worker-staging.<tài-khoản>.workers.dev"   # điền sau khi biết URL Worker
+
+[env.staging.triggers]
+crons = ["0 3 * * *"]
