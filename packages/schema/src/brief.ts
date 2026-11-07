@@ -36,16 +36,3 @@ export function briefProgress(b: Brief): { filled: number; total: 10; missing: s
   const missing = BRIEF_KEYS.filter((k) => !isFilled(b, k));
   return { filled: BRIEF_KEYS.length - missing.length, total: 10, missing };
 }
-
-export const ProposalSchema = z.object({
-  summary: z.string(),
-  problems: z.array(z.string()),
-  solution: z.string(),
-  packages: z.array(z.object({
-    name: z.string(),
-    priceVnd: z.number().int().min(10_000_000),
-    items: z.array(z.string()),
-  })),
-  roadmap: z.array(z.object({ step: z.string(), desc: z.string() })),
-});
-export type Proposal = z.infer<typeof ProposalSchema>;
