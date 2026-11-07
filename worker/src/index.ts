@@ -2,6 +2,7 @@ import type { Deps, Env } from './types';
 import { makeDeps } from './deps';
 import { corsHeaders, errorJson, withCors } from './http';
 import { createSession } from './routes/session';
+import { postChat } from './routes/chat';
 
 type Handler = (req: Request, deps: Deps, ctx: ExecutionContext, url: URL) => Promise<Response>;
 type Route = { method: string; path: string | RegExp; handler: Handler };
@@ -9,6 +10,7 @@ type Route = { method: string; path: string | RegExp; handler: Handler };
 // Later tasks append routes here.
 export const routes: Route[] = [
   { method: 'POST', path: '/api/session', handler: (req, deps) => createSession(req, deps) },
+  { method: 'POST', path: '/api/chat', handler: (req, deps) => postChat(req, deps) },
 ];
 
 export async function handle(req: Request, deps: Deps, ctx: ExecutionContext): Promise<Response> {

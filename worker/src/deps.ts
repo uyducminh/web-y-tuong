@@ -1,5 +1,6 @@
-import type { Config, Deps, Env, Publisher, ClaudeClient, PayosClient, SheetClient, Notifier } from './types';
+import type { Config, Deps, Env, Publisher, PayosClient, SheetClient, Notifier } from './types';
 import { makeTurnstile } from './clients/turnstile';
+import { makeClaudeClient } from './clients/claude';
 
 function parseJson<T>(raw: string | undefined, fallback: T): T {
   if (!raw) return fallback;
@@ -25,7 +26,6 @@ export function configFromEnv(env: Env): Config {
 const ni = () => { throw new Error('not implemented'); };
 
 // Stubs: later tasks replace these with real clients.
-const claudeStub: ClaudeClient = { callTool: async () => ni() };
 const publisherStub: Publisher = { create: async () => ni(), update: async () => ni(), status: async () => ni(), remove: async () => ni() };
 const payosStub: PayosClient = { createLink: async () => ni(), verifyWebhook: () => ni() };
 const sheetStub: SheetClient = { append: async () => ni(), update: async () => ni() };
@@ -51,7 +51,7 @@ export function makeDeps(env: Env): Deps {
     now: () => new Date(),
     rand: randString,
     turnstile: makeTurnstile(env.TURNSTILE_SECRET as string | undefined),
-    claude: claudeStub, publisher: publisherStub, payos: payosStub, sheet: sheetStub, notify: notifyStub,
+    claude: makeClaudeClient({ apiKey: env.ANTHROPIC_API_KEY as string | undefined }), publisher: publisherStub, payos: payosStub, sheet: sheetStub, notify: notifyStub,
     config: configFromEnv(env),
   };
 }
