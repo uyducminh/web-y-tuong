@@ -407,7 +407,11 @@ describe('GET /api/proposal/:siteId', () => {
     const { siteId, site } = await seedSite(deps);
     const res = await handle(req('GET', `/api/proposal/${siteId}`), deps, mkCtx().ctx);
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ proposal, site: { name: site.brand.name, url: `https://demo-org.github.io/${siteId}/` } });
+    expect(await res.json()).toEqual({
+      proposal, site: { name: site.brand.name, url: `https://demo-org.github.io/${siteId}/` },
+      // purchasable packages (ids for POST /api/checkout; prices are what checkout charges)
+      packages: [{ id: 'co-ban', name: 'Cơ bản', priceVnd: 10_000_000, items: ['Website'] }],
+    });
     const miss = await handle(req('GET', '/api/proposal/demo-x-zzzz'), deps, mkCtx().ctx);
     expect(miss.status).toBe(404);
   });

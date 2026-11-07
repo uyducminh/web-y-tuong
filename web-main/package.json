@@ -1,0 +1,20 @@
+{
+  "name": "@sme/web-main",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "serve": "node test/serve.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.65.0",
+    "@types/node": "^26.6.6",
+    "jsdom": "^25.0.1",
+    "jszip": "^3.10.1",
+    "mammoth": "^1.13.0",
+    "pdfjs-dist": "^6.5.438",
+    "vitest": "^2.1.9"
+  }
+}
