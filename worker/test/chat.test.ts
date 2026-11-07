@@ -4,8 +4,8 @@ import { makeTestDeps, TEST_ORIGIN, testConfig } from './fakes';
 import { getJson, putJson } from '../src/kv';
 import { BriefSchema } from '@sme/schema';
 import type { Session, Msg } from '../src/types';
-import { costMicroUsd, addCost, overDailyCap } from '../src/ai/cost';
-import { makeClaudeClient } from '../src/clients/claude';
+import { costMicroUsd, addCost, costToday, overDailyCap, COST_SHARDS } from '../src/ai/cost';
+import { ClaudeError, makeClaudeClient } from '../src/clients/claude';
 
 const ctx = { waitUntil() {}, passThroughOnException() {} } as unknown as ExecutionContext;
 const post = (body: unknown) =>
@@ -38,14 +38,31 @@ describe('cost', () => {
     expect(costMicroUsd('claude-sonnet-5-5', usage, testConfig)).toBe(1000 * 3 + 200 * 15);
     expect(costMicroUsd('unknown', usage, testConfig)).toBe(0);
   });
-  it('addCost accumulates per UTC day and overDailyCap triggers at cap', async () => {
+  it('addCost accumulates per UTC day across shards and overDailyCap triggers at cap', async () => {
     const deps = makeTestDeps();
-    expect(await addCost(deps, 100)).toBe(100);
-    expect(await addCost(deps, 50)).toBe(150);
-    expect(await getJson<number>(deps.kv, 'cost:20261108')).toBe(150);
+    expect(await addCost(deps, 100, 0)).toBe(true);
+    expect(await addCost(deps, 50, 1)).toBe(true);
+    expect(await addCost(deps, 25, 1)).toBe(true);
+    expect(await getJson<number>(deps.kv, 'cost:20261108:1')).toBe(75);
+    await putJson(deps.kv, 'cost:20261108', 5); // unsharded key (manual override) is included
+    expect(await costToday(deps)).toBe(180);
     expect(await overDailyCap(deps)).toBe(false);
-    await addCost(deps, 10_000_000 - 150);
+    await addCost(deps, 10_000_000 - 180);
     expect(await overDailyCap(deps)).toBe(true);
+    expect(COST_SHARDS).toBeGreaterThan(1);
+  });
+
+  it('addCost never throws (KV write limit) and reports false', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const deps = makeTestDeps();
+    deps.kv = new Proxy(deps.kv, { get(t, k) {
+      const v = (t as any)[k];
+      if (k === 'put') return async () => { throw new Error('KV PUT failed: 429 Too Many Requests'); };
+      return typeof v === 'function' ? v.bind(t) : v;
+    } });
+    await expect(addCost(deps, 100)).resolves.toBe(false);
+    expect(errSpy).toHaveBeenCalled();
+    errSpy.mockRestore();
   });
 });
 
@@ -138,12 +155,47 @@ describe('POST /api/chat', () => {
     const deps = makeTestDeps({ claude: f.claude });
     await seed(deps);
     await handle(post({ sessionId: 'sess1', text: 'x' }), deps, ctx);
-    expect(await getJson<number>(deps.kv, 'cost:20261108')).toBe(1000 + 1000);
+    expect(await costToday(deps)).toBe(1000 + 1000);
     await addCost(deps, 10_000_000);
     const r = await handle(post({ sessionId: 'sess1', text: 'x' }), deps, ctx);
     expect(await r.json()).toEqual({ capped: true });
     expect(f.callTool).toHaveBeenCalledTimes(1);
     expect((await load(deps))!.turns).toBe(1);
+  });
+
+  it('a failing cost write after Claude billed does not fail the chat turn', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const f = fakeClaude([{ reply: 'Đã ghi nhận' }]);
+    const deps = makeTestDeps({ claude: f.claude });
+    await seed(deps);
+    const kv = deps.kv;
+    deps.kv = new Proxy(kv, { get(t, k) {
+      const v = (t as any)[k];
+      if (k === 'put') return async (key: string, ...a: any[]) => {
+        if (key.startsWith('cost:')) throw new Error('KV PUT failed: 429 Too Many Requests');
+        return v.call(t, key, ...a);
+      };
+      return typeof v === 'function' ? v.bind(t) : v;
+    } });
+    const r = await handle(post({ sessionId: 'sess1', text: 'x' }), deps, ctx);
+    expect(r.status).toBe(200);
+    expect(((await r.json()) as any).reply).toBe('Đã ghi nhận');
+    const s = (await load(deps))!;
+    expect(s.turns).toBe(1);
+    expect(s.messages.map((m) => m.content)).toEqual(['x', 'Đã ghi nhận']);
+    errSpy.mockRestore();
+  });
+
+  it('a billed reply without tool_use is still counted as cost (and the turn answers 503)', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const callTool = vi.fn(async () => { throw new ClaudeError('Claude returned no tool_use block', false, usage); });
+    const deps = makeTestDeps({ claude: { callTool } as any });
+    await seed(deps);
+    const r = await handle(post({ sessionId: 'sess1', text: 'x' }), deps, ctx);
+    expect(r.status).toBe(503);
+    expect(await costToday(deps)).toBe(1000 + 1000);
+    expect((callTool.mock.calls[0] as any[])[0]).toMatchObject({ timeoutMs: 30_000 });
+    errSpy.mockRestore();
   });
 
   it('503 Vietnamese message when Claude fails; turns and messages unchanged', async () => {
@@ -194,5 +246,48 @@ describe('claude client retries', () => {
     const { client, fetch } = mk([500, 500, 500, 200]);
     await expect(client.callTool(opts)).rejects.toThrow();
     expect(fetch).toHaveBeenCalledTimes(3);
+  });
+
+  it('retries 429 and network errors, but not non-retryable 4xx', async () => {
+    const r429 = mk([429, 200]);
+    await expect(r429.client.callTool(opts)).resolves.toMatchObject({ input: { ok: 1 } });
+    expect(r429.fetch).toHaveBeenCalledTimes(2);
+    for (const st of [400, 401, 403, 404, 413]) {
+      const m = mk([st, 200]);
+      const err = await m.client.callTool(opts).catch((e) => e);
+      expect(err).toBeInstanceOf(ClaudeError);
+      expect(err.retryable).toBe(false);
+      expect(m.fetch).toHaveBeenCalledTimes(1);
+    }
+    let n = 0;
+    const net = makeClaudeClient({ apiKey: 'k', sleep: async () => {}, fetch: (async () => {
+      if (n++ === 0) throw new TypeError('fetch failed');
+      return new Response(JSON.stringify(okBody), { status: 200 });
+    }) as any });
+    await expect(net.callTool(opts)).resolves.toMatchObject({ input: { ok: 1 } });
+    expect(n).toBe(2);
+  });
+
+  it('a reply without tool_use is not retried and carries the billed usage', async () => {
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ content: [{ type: 'text', text: 'xin chào' }], usage }), { status: 200 }));
+    const client = makeClaudeClient({ apiKey: 'k', fetch: fetch as any, sleep: async () => {} });
+    const err = await client.callTool(opts).catch((e) => e);
+    expect(err).toBeInstanceOf(ClaudeError);
+    expect(err.usage).toEqual(usage);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('passes an AbortSignal timeout and does not retry a timed-out request', async () => {
+    const seen: AbortSignal[] = [];
+    const fetch = vi.fn(async (_u: string, init: any) => {
+      seen.push(init.signal);
+      return new Promise<Response>((_res, rej) => init.signal.addEventListener('abort', () => rej(init.signal.reason)));
+    });
+    const client = makeClaudeClient({ apiKey: 'k', fetch: fetch as any, sleep: async () => {} });
+    const err = await client.callTool({ ...opts, timeoutMs: 50 }).catch((e) => e);
+    expect(seen[0]).toBeInstanceOf(AbortSignal);
+    expect(err).toBeInstanceOf(ClaudeError);
+    expect(err.message).toMatch(/timed out/);
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 });

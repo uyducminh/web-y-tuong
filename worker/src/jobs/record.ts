@@ -1,5 +1,5 @@
-import type { Config, Deps, Job } from './types';
-import { getJson, putJson } from './kv';
+import type { Config, Deps, Job } from '../types';
+import { getJson, putJson } from '../kv';
 
 /** Internal job record stored at `job:<id>`; the public API only ever returns the `Job` part. */
 export type JobRecord = Job & {
@@ -12,6 +12,8 @@ export type JobRecord = Job & {
   startedAt?: string;
   /** Set when files are committed and Pages is requested; the 3-minute Pages timeout runs from here. */
   publishedAt?: string;
+  /** Lease: the runner currently executing a stage, until `leaseUntil` (ISO). See jobs/lease.ts. */
+  runner?: string; leaseUntil?: string;
 };
 
 export type JobStage = 'queued' | 'ai' | 'ai_done' | 'publishing' | 'published';
@@ -20,13 +22,14 @@ export const JOB_TTL = 7 * 24 * 3600;
 export const PHONE_TTL = 400 * 24 * 3600;
 export const SESSION_TTL_WITH_SITE = 30 * 24 * 3600;
 export const PAGES_TIMEOUT_MS = 3 * 60_000;
-/** An unpublished stage untouched this long is considered stalled (waitUntil killed) and is resumed. */
-export const STALL_MS = 45_000;
-/** An unpublished job not done this long after it started is given up. */
+/** An unpublished job not done this long after it started (and not leased by a live runner) is given up. */
 export const UNPUBLISHED_GIVE_UP_MS = 10 * 60_000;
+/** Index of unpublished generate jobs for the cron (instead of listing every `job:`); deleted when published/failed. */
+export const JOBIDX_TTL = 24 * 3600;
 
 export const jobKey = (id: string) => `job:${id}`;
 export const queueKey = (id: string) => `queue:${id}`;
+export const jobIdxKey = (id: string) => `jobidx:${id}`;
 
 export const loadJob = (deps: Deps, id: string) => getJson<JobRecord>(deps.kv, jobKey(id));
 export const saveJob = (deps: Deps, job: JobRecord) => putJson(deps.kv, jobKey(job.id), job, JOB_TTL);
@@ -38,23 +41,9 @@ export function publicJob(j: JobRecord): Job {
   return out;
 }
 
-export async function setStage(deps: Deps, job: JobRecord, stage: JobStage): Promise<void> {
-  job.stage = stage; job.stageAt = deps.now().toISOString();
-  if (stage === 'published') job.publishedAt = job.stageAt;
-  await saveJob(deps, job);
-}
-
-/** Fails a job whose demo never went live: frees the phone (if still ours) so the customer can retry, and tells the team. */
-export async function failUnpublished(deps: Deps, job: JobRecord, error: string, reason: string): Promise<void> {
-  job.state = 'failed'; job.error = error;
-  await saveJob(deps, job);
-  if ((await getJson<string>(deps.kv, `phone:${job.phone}`)) === job.siteId) await deps.kv.delete(`phone:${job.phone}`);
-  await quietly(() => deps.notify.send(`LỖI tạo demo ${job.siteId}: ${job.name} – ${job.phone}. ${reason}`));
-}
-
 export const pagesUrl = (config: Config, repo: string) => `https://${config.ghOrg.toLowerCase()}.github.io/${repo}/`;
 
-/** Best-effort side calls (Sheet/Telegram) must never fail the job. */
+/** Best-effort side calls (Sheet/Telegram/stats) must never fail the job. */
 export async function quietly(p: () => Promise<unknown>): Promise<void> {
   try { await p(); } catch (e) { console.error(e); }
 }
@@ -67,11 +56,4 @@ export function utf8ToBase64(s: string): string {
 }
 
 export const GAVE_UP_MSG = 'Chưa tạo được bản dùng thử. Đội ngũ đã được thông báo; bạn có thể bấm tạo lại.';
-
-/** Gives up a pending, unpublished job that has not finished 10 minutes after it started. Returns true if it failed the job. */
-export async function giveUpIfStale(deps: Deps, job: JobRecord): Promise<boolean> {
-  if (job.state !== 'pending' || job.stage === 'published') return false;
-  if (deps.now().getTime() - Date.parse(job.startedAt ?? job.createdAt) <= UNPUBLISHED_GIVE_UP_MS) return false;
-  await failUnpublished(deps, job, GAVE_UP_MSG, `Quá 10 phút chưa đẩy lên GitHub (dừng ở bước ${job.stage}).`);
-  return true;
-}
+export const GEN_FAILED = 'Chưa tạo được bản dùng thử. Đội ngũ đã được thông báo và sẽ liên hệ với bạn sớm.';

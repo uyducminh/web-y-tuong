@@ -1,12 +1,14 @@
 import { BriefSchema, briefProgress, type Brief } from '@sme/schema';
 import type { Deps, Msg, Session } from '../types';
 import { buildSystemPrompt, CHAT_TOOL } from './prompts';
-import { addCost, costMicroUsd } from './cost';
+import { recordUsage } from './cost';
+import { ClaudeError } from '../clients/claude';
 
 export type ChatReply = { reply: string; briefPatch: Partial<Brief>; quickReplies: string[]; readyToGenerate: boolean };
 
 export const MAX_TEXT = 2000;
 const HISTORY = 20;
+export const CHAT_TIMEOUT_MS = 30_000;
 
 /** Shallow merge; lien_he merged one level deeper. Invalid patch keys are dropped. */
 export function mergeBrief(brief: Brief, patch: unknown): Brief {
@@ -31,10 +33,15 @@ export async function chatTurn(deps: Deps, s: Session, userText: string): Promis
   let messages: Msg[] = [...s.messages, { role: 'user' as const, content: text }].slice(-HISTORY);
   while (messages.length > 1 && messages[0].role !== 'user') messages = messages.slice(1);
   const model = deps.config.chatModel;
-  const { input, usage } = await deps.claude.callTool<ChatReply>({
-    model, system, messages, tool: CHAT_TOOL, maxTokens: 1024,
-  });
-  await addCost(deps, costMicroUsd(model, usage, deps.config));
+  let out;
+  try {
+    out = await deps.claude.callTool<ChatReply>({ model, system, messages, tool: CHAT_TOOL, maxTokens: 1024, timeoutMs: CHAT_TIMEOUT_MS });
+  } catch (e) {
+    if (e instanceof ClaudeError) await recordUsage(deps, model, e.usage); // billed even though unusable
+    throw e;
+  }
+  const { input, usage } = out;
+  await recordUsage(deps, model, usage); // never throws
   return {
     reply: typeof input.reply === 'string' ? input.reply : '',
     briefPatch: (input.briefPatch ?? {}) as Partial<Brief>,

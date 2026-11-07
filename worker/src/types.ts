@@ -12,7 +12,8 @@ export type Config = {
 
 export interface ClaudeClient {
   callTool<T>(o: { model: string; system: string; messages: Msg[];
-    tool: { name: string; input_schema: object }; maxTokens: number })
+    tool: { name: string; input_schema: object }; maxTokens: number;
+    /** Total budget for the call including retries (default 60s). */ timeoutMs?: number })
     : Promise<{ input: T; usage: { input_tokens: number; output_tokens: number } }>;
 }
 

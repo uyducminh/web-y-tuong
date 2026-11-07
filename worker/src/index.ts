@@ -4,7 +4,7 @@ import { corsHeaders, errorJson, withCors } from './http';
 import { createSession } from './routes/session';
 import { postChat } from './routes/chat';
 import { postUpload, postDocs } from './routes/upload';
-import { postGenerate } from './routes/generate';
+import { postGenerate, postRunJob } from './routes/generate';
 import { getStatus } from './routes/status';
 import { postRevise } from './routes/revise';
 import { getProposal } from './routes/proposal';
@@ -22,8 +22,9 @@ export const routes: Route[] = [
   { method: 'POST', path: '/api/chat', handler: (req, deps) => postChat(req, deps) },
   { method: 'POST', path: '/api/upload', handler: (req, deps) => postUpload(req, deps) },
   { method: 'POST', path: '/api/docs', handler: (req, deps) => postDocs(req, deps) },
-  { method: 'POST', path: '/api/generate', handler: (req, deps, ctx) => postGenerate(req, deps, ctx) },
-  { method: 'GET', path: /^\/api\/status\/[A-Za-z0-9]{1,64}$/, handler: (_req, deps, ctx, url) => getStatus(deps, ctx, url.pathname.split('/')[3]) },
+  { method: 'POST', path: '/api/generate', handler: (req, deps) => postGenerate(req, deps) },
+  { method: 'POST', path: /^\/api\/jobs\/[A-Za-z0-9]{1,64}\/run$/, handler: (_req, deps, _ctx, url) => postRunJob(deps, url.pathname.split('/')[3]) },
+  { method: 'GET', path: /^\/api\/status\/[A-Za-z0-9]{1,64}$/, handler: (_req, deps, _ctx, url) => getStatus(deps, url.pathname.split('/')[3]) },
   { method: 'POST', path: '/api/revise', handler: (req, deps) => postRevise(req, deps) },
   { method: 'GET', path: /^\/api\/proposal\/[a-z0-9-]{1,64}$/, handler: (_req, deps, _ctx, url) => getProposal(deps, url.pathname.split('/')[3]) },
   { method: 'POST', path: /^\/lead\/[A-Za-z0-9-]{1,64}$/, handler: (req, deps, _ctx, url) => postLead(req, deps, url.pathname.split('/')[2]) },

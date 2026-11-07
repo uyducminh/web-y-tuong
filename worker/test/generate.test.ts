@@ -4,6 +4,8 @@ import { makeTestDeps } from './fakes';
 import { generateContent, reviseContent, RevisionFailedError, sanitizeAssets } from '../src/ai/generate';
 import type { Session } from '../src/types';
 import { getJson } from '../src/kv';
+import { costToday } from '../src/ai/cost';
+import { ClaudeError } from '../src/clients/claude';
 
 const usage = { input_tokens: 1000, output_tokens: 200 };
 const proposal = {
@@ -31,12 +33,13 @@ describe('generateContent', () => {
     expect(r.site.brand.name).toBe('AI Name');
     expect(r.site.siteId).toBe('site1');
     expect(SiteSchema.safeParse(r.site).success).toBe(true);
-    expect(await getJson<number>(deps.kv, 'cost:20261108')).toBe(2 * (1000 * 3 + 200 * 15));
+    expect(await costToday(deps)).toBe(2 * (1000 * 3 + 200 * 15));
   });
 
   it('falls back by merging valid AI parts into defaultSite', async () => {
     const bad = { site: { brand: { name: 'Tốt', color: '#112233' }, hero: { title: 1 }, contact: 5,
-      sections: [{ type: 'faq', title: 'ok' }, { type: 'evil' }, 'x'], template: 'tpl-ban-hang', siteId: 'hack',
+      sections: [{ type: 'faq', title: 'ok', items: [{ q: 'Q?', a: 'A' }] }, { type: 'faq', title: 'sai tên trường', items: [{ question: 'Q?', answer: 'A' }] },
+        { type: 'testimonials', title: 'thiếu text', items: [{ quote: 'hay' }] }, { type: 'evil' }, 'x'], template: 'tpl-ban-hang', siteId: 'hack',
       demo: { badge: false } }, proposal: { bad: 1 } };
     const claude = fake([bad]);
     const deps = makeTestDeps({ claude });
@@ -47,7 +50,7 @@ describe('generateContent', () => {
     expect(r.site.brand).toMatchObject({ name: 'Tốt', color: '#112233' });
     expect(r.site.hero.title).toBe('A');
     expect(r.site.contact.phone).toBe('0900000001');
-    expect(r.site.sections).toEqual([{ type: 'faq', title: 'ok' }]);
+    expect(r.site.sections).toEqual([{ type: 'faq', title: 'ok', items: [{ q: 'Q?', a: 'A' }] }]);
     expect(r.site.template).toBe('tpl-gioi-thieu');
     expect(r.site.siteId).toBe('site1');
     expect(r.site.demo.badge).toBe(true);
@@ -89,6 +92,26 @@ describe('generateContent', () => {
     const r = await generateContent(makeTestDeps({ claude: fake([{ site: goodSite(), proposal }]) }), s, 's');
     expect(s.brief.meta?.auto).toEqual(['nganh', 'san_pham_chinh', 'khach_hang_muc_tieu', 'diem_manh', 'lien_he', 'mau_sac', 'muc_tieu_web', 'tham_khao']);
     expect(r.site.demo).toEqual({ badge: true, expires: '2026-12-08', checkoutUrl: '' });
+  });
+
+  it('tells the AI the exact per-type section fields: tool schema + defaultSite skeleton in the prompt', async () => {
+    const claude = fake([{ site: goodSite(), proposal }]);
+    await generateContent(makeTestDeps({ claude }), mkSession({ nhu_cau: 'thu-lead', ten_don_vi: 'HTX Mây' }), 's');
+    const arg = claude.callTool.mock.calls[0][0];
+    const schema = JSON.stringify(arg.tool.input_schema);
+    for (const f of ['"desc"', '"price"', '"q"', '"a"', '"text"', '"endsAt"', '"body"', '"images"', '"button"']) expect(schema).toContain(f);
+    expect(schema).toContain('"additionalProperties":false');
+    expect(arg.system).toContain('Khung site.json');
+    expect(arg.system).toContain('"type":"lead_form"');
+    expect(arg.system).toContain('"type":"faq","title":"Câu hỏi thường gặp","items":[{"q":');
+    expect(arg.system).toContain('HTX Mây');
+  });
+
+  it('records the cost of a billed reply without tool_use before falling back', async () => {
+    const callTool = vi.fn(async () => { throw new ClaudeError('Claude returned no tool_use block', false, usage); });
+    const deps = makeTestDeps({ claude: { callTool } as any });
+    await expect(generateContent(deps, mkSession(), 's')).rejects.toBeInstanceOf(ClaudeError);
+    expect(await costToday(deps)).toBe(1000 * 3 + 200 * 15);
   });
 
   it('drops unknown assets from generated site', async () => {

@@ -1,11 +1,12 @@
 import { z } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import {
-  BRIEF_KEYS, ProposalSchema, SectionSchema, SiteSchema, SECTION_TYPES, briefProgress, defaultSite,
+  BRIEF_KEYS, ProposalSchema, SectionSchema, SiteSchema, briefProgress, defaultSite,
   type Brief, type Proposal, type SiteJson, type TemplateId,
 } from '@sme/schema';
 import type { Deps, Msg, Session } from '../types';
-import { addCost, costMicroUsd } from './cost';
+import { recordUsage } from './cost';
+import { ClaudeError } from '../clients/claude';
 
 const GenOutSchema = z.object({ site: SiteSchema, proposal: ProposalSchema });
 const EMIT_GEN = { name: 'emit_site', input_schema: zodToJsonSchema(GenOutSchema, { $refStrategy: 'none' }) as object };
@@ -17,15 +18,23 @@ const TEMPLATE_BY_NEED: Record<string, TemplateId> = {
 export const templateFor = (brief: Brief): TemplateId => TEMPLATE_BY_NEED[brief.nhu_cau ?? ''] ?? 'tpl-gioi-thieu';
 
 const MAX_TOKENS = 8000;
+/** Per Claude call (retries included). */
+export const GEN_CALL_TIMEOUT_MS = 120_000;
+/** Whole generateContent budget: the validation retry only gets what is left (keeps a /run request under the client's 180s timeout). */
+export const GEN_TOTAL_BUDGET_MS = 170_000;
+const MIN_RETRY_MS = 20_000;
 
-function genSystem(template: TemplateId, now: Date): string {
+function genSystem(template: TemplateId, now: Date, skeleton: SiteJson): string {
   return [
     'Bạn là chuyên gia thiết kế website cho doanh nghiệp nhỏ và hợp tác xã Việt Nam.',
     'Từ phiếu yêu cầu (brief) và nội dung tài liệu khách gửi, hãy gọi công cụ emit_site để trả về site (site.json) và proposal (đề xuất triển khai).',
     `Template bắt buộc: ${template}; schemaVersion = 1. Mọi chữ hiển thị cho khách phải bằng tiếng Việt có dấu.`,
     'Chỉ dùng ảnh trong danh sách ảnh đã tải lên (đường dẫn assets/...) hoặc URL https://; không bịa đường dẫn ảnh.',
     'Các mục brief trống: hãy tự đề xuất nội dung hợp lý, đừng bịa số điện thoại, địa chỉ hay chứng nhận.',
-    `Loại section hợp lệ: ${SECTION_TYPES.join(', ')}.`,
+    'site phải theo ĐÚNG cấu trúc khung dưới đây: giữ nguyên các loại section, thứ tự và TÊN TRƯỜNG (ví dụ products.items[].name/desc/price/image, '
+      + 'faq.items[].q/a, testimonials.items[].text/name, countdown.endsAt, about.body). Không thêm trường khác; '
+      + 'có thể thêm phần tử vào items/images và thay nội dung chữ. price là số nguyên VND.',
+    `Khung site.json cần điền:\n${JSON.stringify(skeleton)}`,
     `proposal.packages: mỗi gói có priceVnd >= 10000000. Ngày hôm nay: ${now.toISOString().slice(0, 10)}.`,
   ].join('\n');
 }
@@ -82,13 +91,6 @@ export function fallbackProposal(deps: Deps, brief: Brief): Proposal {
   };
 }
 
-/** SectionSchema is permissive (passthrough), so check the common body fields' shapes here. */
-function sectionBodyOk(sec: Record<string, unknown>): boolean {
-  for (const k of ['items', 'images']) if (k in sec && !Array.isArray(sec[k])) return false;
-  for (const k of ['title', 'body', 'button', 'endsAt']) if (k in sec && typeof sec[k] !== 'string') return false;
-  return true;
-}
-
 function mergeFallback(base: SiteJson, ai: unknown): SiteJson {
   if (!isObj(ai)) return base;
   const out: Record<string, unknown> = { ...base };
@@ -101,8 +103,8 @@ function mergeFallback(base: SiteJson, ai: unknown): SiteJson {
     if (p.success) out[k] = p.data;
   }
   if (Array.isArray(ai.sections)) {
-    const types = new Set<string>(SECTION_TYPES);
-    const secs = ai.sections.filter((x) => isObj(x) && typeof x.type === 'string' && types.has(x.type) && SectionSchema.safeParse(x).success && sectionBodyOk(x));
+    // keep each section that matches its per-type schema exactly (same contract the renderer reads)
+    const secs = ai.sections.flatMap((x) => { const p = SectionSchema.safeParse(x); return p.success ? [p.data] : []; });
     if (secs.length) out.sections = secs;
   }
   out.siteId = base.siteId; out.template = base.template; out.demo = base.demo; out.schemaVersion = 1;
@@ -113,11 +115,18 @@ function mergeFallback(base: SiteJson, ai: unknown): SiteJson {
   return noSections.success ? noSections.data : base;
 }
 
-async function call<T>(deps: Deps, o: { system: string; messages: Msg[]; tool: { name: string; input_schema: object } }): Promise<unknown> {
+/** One GEN_MODEL call; the cost is recorded whenever Anthropic billed it (also on a reply without tool_use), before any throw. */
+async function call<T>(deps: Deps, o: { system: string; messages: Msg[]; tool: { name: string; input_schema: object }; timeoutMs?: number }): Promise<unknown> {
   const model = deps.config.genModel;
-  const { input, usage } = await deps.claude.callTool<T>({ model, ...o, maxTokens: MAX_TOKENS });
-  await addCost(deps, costMicroUsd(model, usage, deps.config));
-  return input;
+  let out;
+  try {
+    out = await deps.claude.callTool<T>({ model, ...o, maxTokens: MAX_TOKENS, timeoutMs: o.timeoutMs ?? GEN_CALL_TIMEOUT_MS });
+  } catch (e) {
+    if (e instanceof ClaudeError) await recordUsage(deps, model, e.usage);
+    throw e;
+  }
+  await recordUsage(deps, model, out.usage); // never throws
+  return out.input;
 }
 
 /**
@@ -133,16 +142,19 @@ export async function generateContent(deps: Deps, s: Session, siteId: string)
   const template = templateFor(s.brief);
   const now = deps.now();
   const base = defaultSite(template, s.brief, siteId, now);
-  const system = genSystem(template, now);
+  const system = genSystem(template, now, { ...base, demo: { ...base.demo, checkoutUrl: '' } });
   const userMsg = `Brief:\n${JSON.stringify(s.brief)}\n\nẢnh đã tải lên: ${JSON.stringify(s.uploads)}\n\nNội dung tài liệu:\n${s.docsText || '(không có)'}`;
   const messages: Msg[] = [{ role: 'user', content: userMsg }];
 
   const force = (site: SiteJson): SiteJson =>
     sanitizeAssets({ ...site, siteId, template, demo: base.demo }, s.uploads);
 
+  const started = Date.now();
   let last: unknown;
   for (let attempt = 0; attempt < 2; attempt++) {
-    last = await call(deps, { system, messages, tool: EMIT_GEN });
+    const left = GEN_TOTAL_BUDGET_MS - (Date.now() - started);
+    if (attempt > 0 && left < MIN_RETRY_MS) break; // no time for a validated retry: merge what we have
+    last = await call(deps, { system, messages, tool: EMIT_GEN, timeoutMs: Math.min(GEN_CALL_TIMEOUT_MS, left) });
     const parsed = GenOutSchema.safeParse(isObj(last) ? { ...last, site: isObj(last.site) ? { ...last.site, siteId, template, demo: base.demo } : last.site } : last);
     if (parsed.success) return { site: force(parsed.data.site), proposal: parsed.data.proposal, usedFallback: false };
     if (attempt === 0) {
@@ -172,8 +184,11 @@ export async function reviseContent(deps: Deps, site: SiteJson, request: string,
   ].join('\n');
   const messages: Msg[] = [{ role: 'user', content:
     `site.json hiện tại:\n${JSON.stringify(site)}\n\nẢnh đã tải lên: ${JSON.stringify(uploads)}\n\nYêu cầu của khách:\n${request.slice(0, 2000)}` }];
+  const started = Date.now();
   for (let attempt = 0; attempt < 2; attempt++) {
-    const out = await call(deps, { system, messages, tool: EMIT_REVISE });
+    const left = GEN_TOTAL_BUDGET_MS - (Date.now() - started);
+    if (attempt > 0 && left < MIN_RETRY_MS) break;
+    const out = await call(deps, { system, messages, tool: EMIT_REVISE, timeoutMs: Math.min(GEN_CALL_TIMEOUT_MS, left) });
     const raw = isObj(out) && isObj(out.site) ? out.site : null;
     const parsed = SiteSchema.safeParse(raw ? { ...raw, siteId: site.siteId, template: site.template, demo: site.demo } : out);
     if (parsed.success) return sanitizeAssets(parsed.data, uploads);
