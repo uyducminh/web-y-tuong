@@ -42,7 +42,10 @@ export async function postGenerate(req: Request, deps: Deps): Promise<Response> 
   if (existing) return errorJson(409, PHONE_USED, { siteId: existing, url: packageUrl(deps.config, existing) });
 
   const now = deps.now();
-  const siteId = siteIdFor(s.brief.ten_don_vi?.trim() || name, deps.rand);
+  // A turn-30 default unit name (meta.auto) is not the customer's real name for the unit: keep it (and the person's
+  // name it may come from) out of the URL — slugify('') falls back to 'site'.
+  const autoName = s.brief.meta?.auto?.includes('ten_don_vi');
+  const siteId = siteIdFor(autoName ? '' : s.brief.ten_don_vi?.trim() || name, deps.rand);
   const meta: SiteMeta = {
     siteId, phone, leadKey: deps.rand(32), handoffKey: deps.rand(32), template: templateFor(s.brief),
     expires: new Date(now.getTime() + 30 * DAY_MS).toISOString(),

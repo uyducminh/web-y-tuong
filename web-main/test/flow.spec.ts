@@ -260,7 +260,7 @@ test('xác nhận: form điền sẵn SĐT từ phiếu, gọi confirm (kèm lie
   await expect(page).toHaveURL(/status\.html\?job=job1/);
   const conf = calls.filter((c) => c.path === '/api/brief/confirm');
   expect(conf).toHaveLength(1);
-  expect(conf[0].body).toEqual({ sessionId: 'sess-1', lien_he: { phone: '0912345679' } });
+  expect(conf[0].body).toEqual({ sessionId: 'sess-1', lien_he: { phone: '0912345679' }, name: 'Chị Lan' });
   const gens = calls.filter((c) => c.path === '/api/generate');
   expect(gens).toHaveLength(1);
   expect(gens[0].at).toBeGreaterThanOrEqual(conf[0].done!);
@@ -268,6 +268,28 @@ test('xác nhận: form điền sẵn SĐT từ phiếu, gọi confirm (kèm lie
   const stored = await page.evaluate(() => JSON.parse(sessionStorage.getItem('sme.session') || '{}'));
   expect(stored).toMatchObject({ sessionId: 'sess-1', jobId: 'job1' });
   expect(stored.revisionsLeft).toBeUndefined();
+});
+
+test('khi trợ lý đang trả lời: nút gửi tệp và nút "Gửi và tạo bản dùng thử" bị khoá, trả lời xong thì mở lại', async ({ page }) => {
+  await mockApi(page, {
+    '/api/session': session,
+    '/api/chat': (c, n) => (n === 1 ? { ...atConfirm(c, n) } : { ...chatReply()(c, n), delay: 1500 }),
+    '/api/brief': () => ({ json: { brief: FULL_BRIEF, step: stepAt(8), done: IDS, missing: [], canConfirm: true } }),
+  });
+  await page.goto('/chat.html');
+  await page.locator('[data-need]').first().click();
+  await page.getByRole('button', { name: 'Đúng rồi, tạo bản dùng thử' }).click();
+  const file = page.locator('#file-btn');
+  const submit = page.locator('#gen-submit');
+  await expect(file).toBeEnabled();
+  await expect(submit).toBeEnabled();
+  await page.locator('#msg').fill('Mình muốn thêm một sản phẩm');
+  await page.locator('#msg').press('Enter');
+  await expect(file).toBeDisabled();
+  await expect(submit).toBeDisabled();
+  await expect(page.getByText('Chào bạn! Đơn vị của bạn tên là gì?')).toBeVisible();
+  await expect(file).toBeEnabled();
+  await expect(submit).toBeEnabled();
 });
 
 test('xác nhận bị 409 (thiếu mục): báo lỗi tiếng Việt, không gọi generate', async ({ page }) => {

@@ -121,6 +121,14 @@ describe('POST /api/generate', () => {
     expect(await deps.kv.get('phone:0912345678')).toBeNull();
   });
 
+  it('a turn-30 default unit name (meta.auto) stays out of the siteId slug', async () => {
+    const { deps } = mkDeps();
+    await seedSession(deps, 'sAuto', { brief: { muc_tieu_chinh: 'thu-lead', ten_don_vi: 'Chị Lan', da_xac_nhan: true, meta: { auto: ['ten_don_vi'] } } });
+    const { res, data } = await generate(deps, { sessionId: 'sAuto', phone: '0912345670', name: 'Chị Lan' }, { drive: false });
+    expect(res.status).toBe(200);
+    expect(await siteOfJob(deps, data.jobId)).toMatch(/^site-[a-z0-9]{6}$/);
+  });
+
   it('404 for unknown session', async () => {
     const { deps } = mkDeps();
     const { res } = await generate(deps, { sessionId: 'nope', phone: '0912345678', name: 'Lan' });

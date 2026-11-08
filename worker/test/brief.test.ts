@@ -109,7 +109,23 @@ describe('POST /api/brief/confirm', () => {
     expect(r.status).toBe(200);
     const b = (await load(deps))!.brief;
     expect(b.san_pham).toEqual([{ ten: 'Sản phẩm chính' }]);
-    expect(b.ten_don_vi).toBe('Chưa rõ – đội ngũ sẽ đề xuất');
+    expect(b.ten_don_vi).toBe('Đơn vị của bạn'); // never the "Chưa rõ…" placeholder (it is shown as the brand)
+    expect(b.meta?.auto).toContain('ten_don_vi');
+  });
+  it('turn 30: a missing unit name defaults to the name typed in the confirm form', async () => {
+    const deps = makeTestDeps();
+    await seed(deps, {}, 30);
+    const r = await handle(req('POST', '/api/brief/confirm', { sessionId: 's1', lien_he: { zalo: '0912345678' }, name: '  Chị Lan ' }), deps, ctx);
+    expect(r.status).toBe(200);
+    const b = (await load(deps))!.brief;
+    expect(b.ten_don_vi).toBe('Chị Lan');
+    expect(b.meta?.auto).toContain('ten_don_vi');
+  });
+  it('the confirm form name never overrides a unit name the customer gave', async () => {
+    const deps = makeTestDeps();
+    await seed(deps, { ...FULL, lien_he: { zalo: '0912345678' } }, 30);
+    await handle(req('POST', '/api/brief/confirm', { sessionId: 's1', name: 'Chị Lan' }), deps, ctx);
+    expect((await load(deps))!.brief.ten_don_vi).toBe('HTX A');
   });
   it('turn 30 but contact missing → still 409, nothing auto-filled', async () => {
     const deps = makeTestDeps();
@@ -152,6 +168,12 @@ describe('POST /api/products', () => {
     expect(b.san_pham![1]).toEqual({ ten: 'Chữ' });
     expect(b.san_pham![2]).toEqual({ ten: 'SP3', gia: 1000 });
     expect(b.da_xac_nhan).toBe(false);
+  });
+  it('a gia above 1e10 (a mis-parsed price) is dropped, the item kept', async () => {
+    const deps = makeTestDeps();
+    await seed(deps, {});
+    await handle(req('POST', '/api/products', { sessionId: 's1', items: [{ ten: 'A', gia: 1.2e12 }, { ten: 'B', gia: 1e10 }] }), deps, ctx);
+    expect((await load(deps))!.brief.san_pham).toEqual([{ ten: 'A' }, { ten: 'B', gia: 1e10 }]);
   });
   it('400 bad body, 404 unknown session', async () => {
     const deps = makeTestDeps();

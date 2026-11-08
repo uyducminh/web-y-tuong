@@ -1,11 +1,11 @@
 import { mergeBriefV2, stepState, STEP_LABELS, type BriefV2 } from '@sme/schema';
 import type { Deps, Session } from '../types';
 import { errorJson, json, readJson } from '../http';
-import { getJson, putJson } from '../kv';
 import { MAX_TURNS } from '../ai/prompts';
+import { loadSession, updateSession } from '../session-store';
 
-const TTL = 7 * 24 * 3600;
 export const MAX_PRODUCTS = 60;
+export const MAX_PRICE = 1e10;
 const NO_SESSION = 'Không tìm thấy phiên trò chuyện. Vui lòng tải lại trang để bắt đầu lại.';
 
 export function briefView(brief: BriefV2) {
@@ -17,27 +17,29 @@ export function briefView(brief: BriefV2) {
 }
 
 export async function getBrief(deps: Deps, sessionId: string): Promise<Response> {
-  const s = await getJson<Session>(deps.kv, `sess:${sessionId}`);
+  const s = await loadSession(deps, sessionId);
   if (!s) return errorJson(404, NO_SESSION);
   return json({ brief: s.brief, ...briefView(s.brief) });
 }
 
 const CONTACT_PATH = 'lien_he.phone|zalo';
 export const UNKNOWN_TEXT = 'Chưa rõ – đội ngũ sẽ đề xuất';
-const DEFAULTS: Record<string, (b: BriefV2) => unknown> = {
-  ten_don_vi: () => UNKNOWN_TEXT, nganh: () => UNKNOWN_TEXT, dia_phuong: () => UNKNOWN_TEXT,
+/** Turn-30 fallback for the unit name: never the "Chưa rõ…" placeholder (it is shown as the brand). */
+export const UNIT_FALLBACK = 'Đơn vị của bạn';
+const DEFAULTS: Record<string, (b: BriefV2, formName: string) => unknown> = {
+  ten_don_vi: (_b, formName) => formName || UNIT_FALLBACK, nganh: () => UNKNOWN_TEXT, dia_phuong: () => UNKNOWN_TEXT,
   diem_khac_biet: () => UNKNOWN_TEXT, khach_hang_muc_tieu: () => UNKNOWN_TEXT,
   loai_hinh: () => 'khac', cam_giac: () => 'hien-dai', muc_tieu_chinh: () => 'gioi-thieu', hanh_dong_mong_muon: () => 'zalo',
   san_pham: (b) => [{ ten: b.ten_don_vi?.trim() || 'Sản phẩm chính' }],
 };
 
-function withDefaults(b: BriefV2, missing: string[]): BriefV2 {
+function withDefaults(b: BriefV2, missing: string[], formName: string): BriefV2 {
   const patch: Record<string, unknown> = {};
   const auto: string[] = [];
   for (const k of missing) {
     const d = DEFAULTS[k];
     if (!d) continue;
-    patch[k] = d(b);
+    patch[k] = d(b, formName);
     auto.push(k);
   }
   if (!auto.length) return b;
@@ -58,27 +60,26 @@ function confirmContact(v: unknown): { phone?: string; zalo?: string } | null {
 
 /** The only place that sets da_xac_nhan = true (after merging the optional contact from the confirm form). */
 export async function postConfirm(req: Request, deps: Deps): Promise<Response> {
-  const body = await readJson<{ sessionId?: unknown; lien_he?: unknown }>(req);
+  const body = await readJson<{ sessionId?: unknown; lien_he?: unknown; name?: unknown }>(req);
   if (!body || typeof body.sessionId !== 'string' || !body.sessionId) return errorJson(400, 'Yêu cầu không hợp lệ.');
-  const s = await getJson<Session>(deps.kv, `sess:${body.sessionId}`);
-  if (!s) return errorJson(404, NO_SESSION);
   // The confirm form collects a phone/Zalo, so a customer without contact at turn 30 is not stuck.
   const contact = confirmContact(body.lien_he);
-  if (contact) {
-    s.brief = mergeBriefV2(s.brief, { lien_he: contact });
-    await putJson(deps.kv, `sess:${s.id}`, s, TTL);
-  }
-  let st = stepState(s.brief);
-  // Turn 30 (chat locked): a missing required field must not trap the customer — fill neutral defaults the team
-  // will refine, recorded in meta.auto. Contact is never defaulted.
-  if (!st.canConfirm && s.turns >= MAX_TURNS && !st.missing.includes(CONTACT_PATH)) {
-    s.brief = withDefaults(s.brief, st.missing);
-    await putJson(deps.kv, `sess:${s.id}`, s, TTL);
-    st = stepState(s.brief);
-  }
+  const formName = typeof body.name === 'string' ? body.name.trim().slice(0, 100) : '';
+  const saved = await updateSession(deps, body.sessionId, (s: Session) => {
+    if (contact) s.brief = mergeBriefV2(s.brief, { lien_he: contact });
+    let st = stepState(s.brief);
+    // Turn 30 (chat locked): a missing required field must not trap the customer — fill neutral defaults the team
+    // will refine, recorded in meta.auto. Contact is never defaulted.
+    if (!st.canConfirm && s.turns >= MAX_TURNS && !st.missing.includes(CONTACT_PATH)) {
+      s.brief = withDefaults(s.brief, st.missing, formName);
+      st = stepState(s.brief);
+    }
+    if (st.canConfirm) s.brief = { ...s.brief, da_xac_nhan: true };
+    return st;
+  });
+  if (!saved) return errorJson(404, NO_SESSION);
+  const st = saved.result;
   if (!st.canConfirm) return errorJson(409, 'Còn thiếu một số thông tin bắt buộc. Vui lòng bổ sung trước khi xác nhận.', { missing: st.missing });
-  s.brief = { ...s.brief, da_xac_nhan: true };
-  await putJson(deps.kv, `sess:${s.id}`, s, TTL);
   return json({ ok: true });
 }
 
@@ -87,19 +88,18 @@ export async function postProducts(req: Request, deps: Deps): Promise<Response> 
   if (!body || typeof body.sessionId !== 'string' || !body.sessionId || !Array.isArray(body.items)) {
     return errorJson(400, 'Yêu cầu không hợp lệ.');
   }
-  const s = await getJson<Session>(deps.kv, `sess:${body.sessionId}`);
-  if (!s) return errorJson(404, NO_SESSION);
   const items: { ten: string; gia?: number }[] = [];
   for (const it of body.items) {
     if (items.length >= MAX_PRODUCTS) break;
     const ten = typeof (it as any)?.ten === 'string' ? (it as any).ten.trim().slice(0, 200) : '';
     if (!ten) continue;
     const g = (it as any).gia;
-    items.push(typeof g === 'number' && Number.isFinite(g) && g >= 0 ? { ten, gia: Math.round(g) } : { ten });
+    // A price above MAX_PRICE is a parse error (e.g. a unit applied to the wrong number): keep the item, drop the price.
+    items.push(typeof g === 'number' && Number.isFinite(g) && g >= 0 && g <= MAX_PRICE ? { ten, gia: Math.round(g) } : { ten });
   }
-  if (items.length) {
-    s.brief = mergeBriefV2(s.brief, { san_pham: items });
-    await putJson(deps.kv, `sess:${s.id}`, s, TTL);
-  }
+  const saved = await updateSession(deps, body.sessionId, (s: Session) => {
+    if (items.length) s.brief = mergeBriefV2(s.brief, { san_pham: items });
+  });
+  if (!saved) return errorJson(404, NO_SESSION);
   return json({ count: items.length });
 }

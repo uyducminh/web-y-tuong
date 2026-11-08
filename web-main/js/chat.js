@@ -34,6 +34,8 @@ const genError = $('gen-error');
 
 let locked = false;      // hết lượt / bắt buộc xác nhận
 let busy = false;        // đang chờ trả lời
+let uploading = false;   // đang gửi ảnh/tài liệu
+let submitting = false;  // đang xác nhận + tạo bản dùng thử
 let imagesSent = 0;
 let docsSent = 0;
 let lastBrief = null;    // phiếu yêu cầu mới nhất từ GET /api/brief (để điền sẵn SĐT)
@@ -144,6 +146,9 @@ function syncComposer() {
   msg.disabled = locked;
   send.disabled = off;
   for (const b of document.querySelectorAll('[data-need], .chip, .choice, .btn-edit')) b.disabled = off;
+  // Không gửi tệp / xác nhận khi trợ lý đang trả lời: hai yêu cầu cùng sửa một phiên.
+  fileBtn.disabled = busy || uploading;
+  genSubmit.disabled = busy || submitting;
   msg.placeholder = locked ? 'Đã hết lượt hỏi đáp — bấm “Tạo bản dùng thử”' : 'Nhập trả lời…';
 }
 function lock(reason) {
@@ -252,7 +257,8 @@ fileInput.addEventListener('change', async () => {
 
   let sessionId;
   try { sessionId = await ensureSession(); } catch (e) { showError(e.message); return; }
-  fileBtn.disabled = true;
+  uploading = true;
+  syncComposer();
   const errors = [...checked.errors];
   const thumbs = h('div', { class: 'thumbs' });
   const docNames = [];
@@ -270,7 +276,8 @@ fileInput.addEventListener('change', async () => {
     onProgress: (t) => { progress.textContent = t; progress.hidden = !t; },
     onSessionLost: () => { lost = true; dropSession(); errors.push(`${EXPIRED} Bạn chọn lại ảnh/tài liệu để gửi vào phiên mới.`); showError(errors.join(' ')); },
   });
-  fileBtn.disabled = false;
+  uploading = false;
+  syncComposer();
   if (lost) return; // ảnh đã gửi thuộc phiên cũ, không tính
   imagesSent += sent;
   docsSent += docNames.length + sheetNames.length;
@@ -306,13 +313,14 @@ function genFail(text, link) {
   genError.hidden = false;
 }
 function resetSubmit() {
-  genSubmit.disabled = false;
+  submitting = false;
+  genSubmit.disabled = busy;
   genSubmit.textContent = 'Gửi và tạo bản dùng thử';
 }
 
 genForm.addEventListener('submit', async (e) => {
   e.preventDefault();
-  if (genSubmit.disabled) return;
+  if (submitting || busy) return;
   genError.hidden = true;
   const name = $('name').value.trim();
   const rawPhone = $('phone').value.trim();
@@ -321,12 +329,13 @@ genForm.addEventListener('submit', async (e) => {
   const phone = normalizePhone(rawPhone);
   if (!phone) { genFail('Số điện thoại chưa đúng. Vui lòng nhập số di động 10 chữ số, ví dụ 0912 345 678.'); $('phone').focus(); return; }
 
+  submitting = true;
   genSubmit.disabled = true; // chặn bấm 2 lần ngay lập tức
   genSubmit.textContent = 'Đang gửi…';
   let sessionId;
   try { sessionId = await ensureSession(); } catch (err) { resetSubmit(); genFail(err.message); return; }
 
-  const c = await api('/api/brief/confirm', { json: { sessionId, lien_he: { phone } } });
+  const c = await api('/api/brief/confirm', { json: { sessionId, lien_he: { phone }, name } });
   if (!c.ok) {
     resetSubmit();
     if (c.status === 404) {
