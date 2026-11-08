@@ -18,9 +18,20 @@ describe('parsePrice', () => {
   it('takes the FIRST number group of a range', () => {
     expect(parsePrice('180.000 - 200.000đ')).toBe(180000);
     expect(parsePrice('Từ 50.000đ đến 70.000đ')).toBe(50000);
-    expect(parsePrice('1,2 - 1,5 triệu')).toBe(1200000);
+    // a unit only applies to the number it directly follows: "1,2" alone is not a plausible price
+    expect(parsePrice('1,2 - 1,5 triệu')).toBe(1500000);
     expect(parsePrice('1,2 triệu')).toBe(1200000);
     expect(parsePrice('Giá: 1.250.000 VNĐ/thùng 12 chai')).toBe(1250000);
+  });
+  it('a unit applies only to the number it directly follows', () => {
+    expect(parsePrice('1.200.000đ (giảm còn 1 triệu)')).toBe(1200000);
+    expect(parsePrice('Combo 3 hộp 450k')).toBe(450000);
+    expect(parsePrice('180.000 - 200.000đ')).toBe(180000);
+    expect(parsePrice('1,2 triệu')).toBe(1200000);
+    expect(parsePrice('50k')).toBe(50000);
+    expect(parsePrice('180.000 đồng')).toBe(180000);
+    expect(parsePrice('Hộp 12 gói')).toBe(12); // nothing plausible: the first group
+    expect(parsePrice('Size 2, giá 25000')).toBe(25000);
   });
 });
 

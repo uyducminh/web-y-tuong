@@ -21,20 +21,26 @@ function toNumber(tok, decimal) {
   return Number(tok.replace(/[.,]/g, ''));
 }
 
+const UNIT_MUL = { 'triệu': 1_000_000, tr: 1_000_000, 'nghìn': 1000, 'ngàn': 1000, k: 1000, 'đồng': 1, 'đ': 1, 'vnđ': 1, vnd: 1 };
+// Số + đơn vị NGAY SAU nó (cho phép một dấu cách). Đơn vị dài đứng trước để "vnđ" không bị đọc thành số rồi "đ".
+const PRICE_GROUP = /(\d(?:[\d.,]*\d)?)(?:\s?(triệu|nghìn|ngàn|đồng|vnđ|vnd|tr|k|đ)(?![\p{L}]))?/gu;
+
 /**
- * Lấy CỤM SỐ ĐẦU TIÊN: "180.000đ" → 180000 · "180,000" → 180000 · "180.000 - 200.000đ" → 180000 ·
- * "1,2 triệu" → 1200000 · "45k" → 45000. Không đọc được → undefined.
+ * Đơn vị chỉ áp cho số đứng ngay trước nó. Chọn cụm "số[đơn vị]" ĐẦU TIÊN trông như giá: có đơn vị, hoặc có dấu
+ * phân cách nghìn, hoặc ≥ 1000; không có cụm nào như vậy thì lấy cụm đầu tiên.
+ * "180.000đ" → 180000 · "180.000 - 200.000đ" → 180000 · "1,2 triệu" → 1200000 · "45k" → 45000 ·
+ * "1.200.000đ (giảm còn 1 triệu)" → 1200000 · "Combo 3 hộp 450k" → 450000. Không đọc được → undefined.
  */
 export function parsePrice(v) {
   if (typeof v === 'number') return Number.isFinite(v) && v >= 0 ? Math.round(v) : undefined;
-  const s = lower(v);
-  const first = /\d(?:[\d.,]*\d)?/.exec(s);
-  if (!first) return undefined;
-  const rest = s.slice(first.index + first[0].length);
-  const unit = /(?<![\p{L}])(triệu|tr|nghìn|ngàn|k)(?![\p{L}])/u.exec(rest);
-  const n = toNumber(first[0], !!unit);
-  if (!Number.isFinite(n)) return undefined;
-  return Math.round(unit ? n * (unit[1] === 'triệu' || unit[1] === 'tr' ? 1_000_000 : 1000) : n);
+  const groups = [...lower(v).matchAll(PRICE_GROUP)].map((m) => {
+    const unit = m[2];
+    const decimal = !!unit && UNIT_MUL[unit] > 1;
+    const n = toNumber(m[1], decimal) * (unit ? UNIT_MUL[unit] : 1);
+    return { n, plausible: !!unit || /\d[.,]\d{3}(?!\d)/.test(m[1]) || n >= 1000 };
+  }).filter((g) => Number.isFinite(g.n));
+  const pick = groups.find((g) => g.plausible) ?? groups[0];
+  return pick ? Math.round(pick.n) : undefined;
 }
 
 function columnsOf(row) {
