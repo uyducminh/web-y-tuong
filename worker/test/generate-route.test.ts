@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
-import { BriefV2Schema, defaultSite, type SiteJson } from '@sme/schema';
+import { BriefV2Schema, defaultSite, type SiteJson, defaultAnalysis } from '@sme/schema';
 import { makeTestDeps, TEST_ORIGIN } from './fakes';
 import { handle } from '../src/index';
 import { getJson, putJson } from '../src/kv';
@@ -21,7 +21,7 @@ const unb64 = (s: string) => new TextDecoder().decode(Uint8Array.from(atob(s), (
 
 function okClaude(siteOver: Partial<SiteJson> = {}) {
   return { callTool: vi.fn(async () => ({
-    input: { site: { ...defaultSite('tpl-thu-lead', BriefV2Schema.parse({ ten_don_vi: 'HTX Mây Tre' }), 'x'), ...siteOver }, proposal },
+    input: { site: { ...defaultSite('tpl-thu-lead', BriefV2Schema.parse({ ten_don_vi: 'HTX Mây Tre' }), 'x'), ...siteOver }, analysis: defaultAnalysis(BriefV2Schema.parse({ ten_don_vi: 'HTX Mây Tre' })) },
     usage,
   })) } as any;
 }
@@ -171,7 +171,8 @@ describe('POST /api/generate', () => {
       createdAt: '2026-11-08T05:00:00.000Z', expires: '2026-12-08T05:00:00.000Z' });
     expect(await deps.kv.get('phone:0912345678')).toBe(JSON.stringify(siteId));
     expect((await getJson<any>(deps.kv, `sitejson:${siteId}`)).siteId).toBe(siteId);
-    expect((await getJson<any>(deps.kv, `proposal:${siteId}`)).summary).toBe('Tóm tắt');
+    expect((await getJson<any>(deps.kv, `proposal:${siteId}`)).summary).toContain('HTX Mây Tre');
+    expect((await getJson<any>(deps.kv, `analysis:${siteId}`)).free.tom_tat_doanh_nghiep).toContain('HTX Mây Tre');
     const sess = (await getJson<Session>(deps.kv, 'sess:sD'))!;
     expect(sess.jobId).toBe(data.jobId);
     expect(sess.siteId).toBe(siteId);

@@ -1,7 +1,7 @@
-import { defaultSite, templateFor, type Proposal, type SiteJson } from '@sme/schema';
+import { defaultAnalysis, defaultSite, templateFor, type Analysis, type Proposal, type SiteJson } from '@sme/schema';
 import type { Deps, Job, Session, SiteMeta } from '../types';
 import { getJson, putJson } from '../kv';
-import { fallbackProposal, generateContent } from '../ai/generate';
+import { fallbackProposal, generatePackage } from '../ai/generate';
 import { overDailyCap } from '../ai/cost';
 import { bumpStat } from '../sites';
 import {
@@ -88,13 +88,15 @@ async function aiStage(deps: Deps, jobId: string, runner: string): Promise<Stage
   await saveLeased(deps, job, runner);
   await deps.kv.delete(queueKey(job.id));
 
-  let site: SiteJson; let proposal: Proposal;
+  let site: SiteJson; let proposal: Proposal; let analysis: Analysis;
   try {
-    ({ site, proposal } = await generateContent(deps, s, job.siteId));
+    ({ site, analysis } = await generatePackage(deps, s, job.siteId));
+    proposal = fallbackProposal(deps, s.brief);
   } catch (e) {
-    console.error('generateContent failed, using defaults', e);
+    console.error('generatePackage failed, using defaults', e);
     site = defaultSite(templateFor(s.brief), s.brief, job.siteId, deps.now());
     proposal = fallbackProposal(deps, s.brief);
+    analysis = defaultAnalysis(s.brief);
   }
   site = { ...site, demo: { ...site.demo, checkoutUrl: `${deps.config.webOrigin}/proposal.html?site=${job.siteId}` } };
 
@@ -102,6 +104,7 @@ async function aiStage(deps: Deps, jobId: string, runner: string): Promise<Stage
   await putJson(deps.kv, `sess:${s.id}`, s, SESSION_TTL_WITH_SITE);
   await putJson(deps.kv, `sitejson:${job.siteId}`, site);
   await putJson(deps.kv, `proposal:${job.siteId}`, proposal);
+  await putJson(deps.kv, `analysis:${job.siteId}`, analysis);
   job.stage = 'ai_done'; job.stageAt = deps.now().toISOString();
   releaseLease(job);
   await saveLeased(deps, job, runner);

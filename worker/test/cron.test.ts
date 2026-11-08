@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { BriefV2Schema, defaultSite } from '@sme/schema';
+import { BriefV2Schema, defaultSite, defaultAnalysis } from '@sme/schema';
 import { makeTestDeps } from './fakes';
 import { getJson, putJson } from '../src/kv';
 import { runDaily } from '../src/cron';
@@ -21,7 +21,7 @@ function mk(over: Partial<Deps> = {}) {
     status: vi.fn(async () => ({ state: 'pending' as const })), remove: vi.fn(async (_repo: string) => {}),
   };
   const claude = { callTool: vi.fn(async () => ({
-    input: { site: defaultSite('tpl-thu-lead', BriefV2Schema.parse({ ten_don_vi: 'X' }), 'x'), proposal },
+    input: { site: defaultSite('tpl-thu-lead', BriefV2Schema.parse({ ten_don_vi: 'X' }), 'x'), analysis: defaultAnalysis(BriefV2Schema.parse({ ten_don_vi: 'X' })) },
     usage: { input_tokens: 1, output_tokens: 1 } })) };
   const deps = makeTestDeps({ sheet, notify, publisher, claude: claude as any, ...over });
   return { deps, sheet, notify, publisher, claude };
@@ -134,7 +134,7 @@ describe('runDaily queue', () => {
     claude.callTool.mockImplementation(async () => {
       calls++;
       if (calls >= 2) await putJson(deps.kv, 'cost:20261108', 11e6);
-      return { input: { site: defaultSite('tpl-thu-lead', BriefV2Schema.parse({ ten_don_vi: 'X' }), 'x'), proposal }, usage: { input_tokens: 1, output_tokens: 1 } };
+      return { input: { site: defaultSite('tpl-thu-lead', BriefV2Schema.parse({ ten_don_vi: 'X' }), 'x'), analysis: defaultAnalysis(BriefV2Schema.parse({ ten_don_vi: 'X' })) }, usage: { input_tokens: 1, output_tokens: 1 } };
     });
     const r = await runDaily(deps);
     expect(r.processed).toBe(2);
