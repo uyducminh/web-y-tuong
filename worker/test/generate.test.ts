@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { BriefV2Schema, SiteSchema, defaultSite, defaultAnalysis, AnalysisSchema, type SiteJson } from '@sme/schema';
 import { makeTestDeps } from './fakes';
 import { generatePackage, reviseContent, RevisionFailedError, sanitizeAssets } from '../src/ai/generate';
@@ -20,6 +20,9 @@ const fake = (outs: any[]) => {
 const goodSite = (over: any = {}) => ({ ...defaultSite('tpl-gioi-thieu', BriefV2Schema.parse({ ten_don_vi: 'AI Name' }), 'x'), ...over });
 
 describe('generatePackage', () => {
+  beforeEach(() => { vi.spyOn(console, 'error').mockImplementation(() => {}); });
+  afterEach(() => { vi.restoreAllMocks(); });
+
   it('retries once after invalid output and uses the valid one', async () => {
     const claude = fake([{ site: { nope: 1 }, analysis }, { site: goodSite(), analysis }]);
     const deps = makeTestDeps({ claude });
@@ -127,6 +130,22 @@ describe('generatePackage', () => {
     expect(r.site.brand).toMatchObject({ name: 'Giữ lại', color: '#112233' });
     expect(r.site.sections).toEqual([{ type: 'faq', title: 'ok', items: [{ q: 'Q?', a: 'A' }] }]);
     expect(await costToday(deps)).toBe(2 * (1000 * 3 + 200 * 15));
+  });
+
+  it('attempt 2 returns no site object: keeps attempt-1 brand and sections', async () => {
+    const first = { site: { brand: { name: 'Giữ lại', color: '#112233' }, hero: { title: 1 },
+      sections: [{ type: 'faq', title: 'ok', items: [{ q: 'Q?', a: 'A' }] }] }, analysis: {} };
+    const r = await generatePackage(makeTestDeps({ claude: fake([first, { analysis }]) }), mkSession({ ten_don_vi: 'A' }), 's');
+    expect(r.usedFallback).toBe(true);
+    expect(r.site.brand).toMatchObject({ name: 'Giữ lại', color: '#112233' });
+    expect(r.site.sections).toEqual([{ type: 'faq', title: 'ok', items: [{ q: 'Q?', a: 'A' }] }]);
+  });
+
+  it('site stays invalid but attempt-1 analysis is valid: keeps that analysis', async () => {
+    const custom = { ...analysis, free: { ...analysis.free, tom_tat_doanh_nghiep: 'AI viết riêng' } };
+    const r = await generatePackage(makeTestDeps({ claude: fake([{ site: { nope: 1 }, analysis: custom }, { site: { nope: 2 } }]) }), mkSession({ ten_don_vi: 'A' }), 's');
+    expect(r.usedFallback).toBe(true);
+    expect(r.analysis.free.tom_tat_doanh_nghiep).toBe('AI viết riêng');
   });
 
   it('both attempts throw: defaultSite + defaultAnalysis, no throw', async () => {

@@ -163,7 +163,7 @@ export async function generatePackage(deps: Deps, s: Session, siteId: string)
       continue; // try once more if budget allows; an earlier reply stays in lastSite/goodAnalysis
     }
     const o = isObj(last) ? last : {};
-    lastSite = o.site;
+    if (isObj(o.site)) lastSite = o.site; // a later reply without a site must not erase an earlier usable one
     const a = AnalysisSchema.safeParse(o.analysis);
     if (a.success) goodAnalysis = a.data;
     const st = SiteSchema.safeParse(isObj(o.site) ? { ...o.site, siteId, template, demo: base.demo } : o.site);
