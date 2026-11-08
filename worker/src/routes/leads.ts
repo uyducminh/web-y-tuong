@@ -37,7 +37,7 @@ export async function postLead(req: Request, deps: Deps, siteId: string): Promis
   return json({ ok: true });
 }
 
-function safeEqual(a: string, b: string): boolean {
+export function safeEqual(a: string, b: string): boolean {
   const ea = new TextEncoder().encode(a), eb = new TextEncoder().encode(b);
   let diff = ea.length ^ eb.length;
   for (let i = 0; i < Math.max(ea.length, eb.length); i++) diff |= (ea[i] ?? 0) ^ (eb[i] ?? 0);

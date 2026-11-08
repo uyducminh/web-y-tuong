@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
-import { BriefSchema, defaultSite, type SiteJson } from '@sme/schema';
+import { BriefV2Schema, defaultSite, type SiteJson, defaultAnalysis } from '@sme/schema';
 import { makeTestDeps, TEST_ORIGIN } from './fakes';
 import { handle } from '../src/index';
 import { getJson, putJson } from '../src/kv';
@@ -17,26 +17,29 @@ const proposal = {
   packages: [{ name: 'Cơ bản', priceVnd: 10_000_000, items: ['x'] }],
   roadmap: [{ step: '1', desc: 'd' }],
 };
-const unb64 = (s: string) => new TextDecoder().decode(Uint8Array.from(atob(s), (c) => c.charCodeAt(0)));
+const API = 'https://api.test';
+const SITE_ID_RE = /^[a-z0-9-]+-[a-z0-9]{6}$/;
 
 function okClaude(siteOver: Partial<SiteJson> = {}) {
   return { callTool: vi.fn(async () => ({
-    input: { site: { ...defaultSite('tpl-thu-lead', BriefSchema.parse({ ten_don_vi: 'HTX Mây Tre' }), 'x'), ...siteOver }, proposal },
+    input: { site: { ...defaultSite('tpl-thu-lead', BriefV2Schema.parse({ ten_don_vi: 'HTX Mây Tre' }), 'x'), ...siteOver }, analysis: defaultAnalysis(BriefV2Schema.parse({ ten_don_vi: 'HTX Mây Tre' })) },
     usage,
   })) } as any;
 }
 
 type P = Deps['publisher'];
 type RecPublisher = { create: Mock<P['create']>; update: Mock<P['update']>; status: Mock<P['status']>; remove: Mock<P['remove']> };
-function recPublisher(over: Partial<RecPublisher> = {}): RecPublisher {
+/** The trial flow must never touch GitHub: every publisher method throws if called. */
+function recPublisher(): RecPublisher {
+  const boom = (n: string) => async () => { throw new Error(`publisher.${n} must not be called`); };
   return {
-    create: vi.fn<P['create']>(async (o) => ({ repo: o.repoName })),
-    update: vi.fn<P['update']>(async () => {}),
-    status: vi.fn<P['status']>(async () => ({ state: 'pending' })),
-    remove: vi.fn<P['remove']>(async () => {}),
-    ...over,
+    create: vi.fn<P['create']>(boom('create')), update: vi.fn<P['update']>(boom('update')),
+    status: vi.fn<P['status']>(boom('status')), remove: vi.fn<P['remove']>(boom('remove')),
   };
 }
+const expectNoPublisher = (p: RecPublisher) => {
+  for (const f of [p.create, p.update, p.status, p.remove]) expect(f).not.toHaveBeenCalled();
+};
 
 function mkDeps(over: Partial<Deps> = {}) {
   const sheet = { append: vi.fn<Deps['sheet']['append']>(async () => {}), update: vi.fn<Deps['sheet']['update']>(async () => {}) };
@@ -61,7 +64,7 @@ async function seedSession(deps: Deps, id: string, opts: { uploads?: number; bri
   }
   const s: Session = {
     id, ip: '1.1.1.1', createdAt: '2026-11-08T04:00:00Z', turns: 9,
-    brief: BriefSchema.parse(opts.brief ?? { nhu_cau: 'thu-lead', ten_don_vi: 'HTX Mây Tre Đan' }),
+    brief: BriefV2Schema.parse(opts.brief ?? { muc_tieu_chinh: 'thu-lead', ten_don_vi: 'HTX Mây Tre Đan', da_xac_nhan: true }),
     messages: [], uploads, docsText: '',
   };
   await putJson(deps.kv, `sess:${id}`, s);
@@ -69,7 +72,7 @@ async function seedSession(deps: Deps, id: string, opts: { uploads?: number; bri
 }
 
 const req = (method: string, path: string, body?: unknown) =>
-  new Request(`https://api.test${path}`, { method, headers: { 'content-type': 'application/json', Origin: TEST_ORIGIN },
+  new Request(`${API}${path}`, { method, headers: { 'content-type': 'application/json', Origin: TEST_ORIGIN },
     body: body === undefined ? undefined : JSON.stringify(body) });
 
 /** POST /api/jobs/:id/run once. */
@@ -98,6 +101,8 @@ async function generate(deps: Deps, body: unknown, o: { drive?: boolean } = {}) 
   return { res, data };
 }
 
+const siteOfJob = async (deps: Deps, jobId: string) => (await getJson<JobRecord>(deps.kv, `job:${jobId}`))!.siteId;
+
 describe('POST /api/generate', () => {
   it('rejects an invalid phone with 400', async () => {
     const { deps } = mkDeps();
@@ -107,27 +112,42 @@ describe('POST /api/generate', () => {
     expect(data.error).toMatch(/số điện thoại/i);
   });
 
+  it('409 when the brief is not confirmed (no job, no phone reservation)', async () => {
+    const { deps } = mkDeps();
+    await seedSession(deps, 'sU', { brief: { muc_tieu_chinh: 'thu-lead', ten_don_vi: 'HTX' } });
+    const { res, data } = await generate(deps, { sessionId: 'sU', phone: '0912345678', name: 'Lan' });
+    expect(res.status).toBe(409);
+    expect(data.error).toBe('Vui lòng xác nhận thông tin trước khi tạo bản dùng thử.');
+    expect(await deps.kv.get('phone:0912345678')).toBeNull();
+  });
+
+  it('a turn-30 default unit name (meta.auto) stays out of the siteId slug', async () => {
+    const { deps } = mkDeps();
+    await seedSession(deps, 'sAuto', { brief: { muc_tieu_chinh: 'thu-lead', ten_don_vi: 'Chị Lan', da_xac_nhan: true, meta: { auto: ['ten_don_vi'] } } });
+    const { res, data } = await generate(deps, { sessionId: 'sAuto', phone: '0912345670', name: 'Chị Lan' }, { drive: false });
+    expect(res.status).toBe(200);
+    expect(await siteOfJob(deps, data.jobId)).toMatch(/^site-[a-z0-9]{6}$/);
+  });
+
   it('404 for unknown session', async () => {
     const { deps } = mkDeps();
     const { res } = await generate(deps, { sessionId: 'nope', phone: '0912345678', name: 'Lan' });
     expect(res.status).toBe(404);
   });
 
-  it('409 with the old link when the phone already has a demo', async () => {
+  it('409 with the old package link when the phone already has a demo', async () => {
     const { deps, publisher } = mkDeps();
     await seedSession(deps, 'sB');
-    await putJson(deps.kv, 'phone:0912345678', 'demo-cu-abcd');
-    await putJson(deps.kv, 'site:demo-cu-abcd', { siteId: 'demo-cu-abcd', repo: 'demo-cu-abcd', phone: '0912345678', leadKey: 'k',
-      url: 'https://demo-org.github.io/demo-cu-abcd/', expires: '', paid: false, revisions: 0, createdAt: '', name: 'X' } satisfies SiteMeta);
+    await putJson(deps.kv, 'phone:0912345678', 'cu-abcdef');
     const { res, data } = await generate(deps, { sessionId: 'sB', phone: '0912 345 678', name: 'Lan' });
     expect(res.status).toBe(409);
     expect(data.error).toContain('Số điện thoại này đã có bản dùng thử');
-    expect(data.url).toBe('https://demo-org.github.io/demo-cu-abcd/');
-    expect(publisher.create).not.toHaveBeenCalled();
+    expect(data.url).toBe(`${API}/package/cu-abcdef`);
+    expectNoPublisher(publisher);
   });
 
-  it('is idempotent per session: same jobId, publisher.create once', async () => {
-    const { deps, publisher } = mkDeps();
+  it('is idempotent per session: same jobId, Claude called once', async () => {
+    const { deps, claude } = mkDeps();
     await seedSession(deps, 'sC');
     const a = await generate(deps, { sessionId: 'sC', phone: '0912345678', name: 'Lan' });
     const b = await generate(deps, { sessionId: 'sC', phone: '0912345678', name: 'Lan' });
@@ -135,51 +155,130 @@ describe('POST /api/generate', () => {
     expect(b.res.status).toBe(200);
     expect(a.data.jobId).toBeTruthy();
     expect(b.data.jobId).toBe(a.data.jobId);
-    expect(publisher.create).toHaveBeenCalledTimes(1);
+    expect(claude.callTool).toHaveBeenCalledTimes(1);
   });
 
-  it('creates the demo: repo name, files, KV records, sheet + notify', async () => {
+  it('two /run calls take the job ai → ready and store demo, analysis and images in KV (no GitHub)', async () => {
     const { deps, publisher, sheet, notify } = mkDeps();
     await seedSession(deps, 'sD', { uploads: 2 });
-    const { res, data } = await generate(deps, { sessionId: 'sD', phone: '+84 912 345 678', name: 'Chị Lan' });
+    const { res, data } = await generate(deps, { sessionId: 'sD', phone: '+84 912 345 678', name: 'Chị Lan' }, { drive: false });
     expect(res.status).toBe(200);
-    expect(publisher.create).toHaveBeenCalledTimes(1);
-    const arg = publisher.create.mock.calls[0][0] as any;
-    expect(arg.repoName).toMatch(/^demo-[a-z0-9-]{1,30}-[a-z0-9]{4}$/);
-    expect(arg.repoName.startsWith('demo-htx-may-tre-dan-')).toBe(true);
-    expect(arg.template).toBe('tpl-thu-lead');
-    const paths = arg.files.map((f: any) => f.path);
-    expect(paths.sort()).toEqual(['assets/1-anh.jpg', 'assets/2-anh.jpg', 'site.json']);
-    expect(arg.files.find((f: any) => f.path === 'assets/2-anh.jpg').base64).toBe(btoa('img2'));
-    const siteId = arg.repoName;
-    const site = JSON.parse(unb64(arg.files.find((f: any) => f.path === 'site.json').base64));
-    expect(site.siteId).toBe(siteId);
-    expect(site.demo.checkoutUrl).toBe(`${TEST_ORIGIN}/proposal.html?site=${siteId}`);
+    const jobId = data.jobId;
+    const siteId = await siteOfJob(deps, jobId);
+    expect(siteId).toMatch(SITE_ID_RE);
+    expect(siteId).toMatch(/^[a-z0-9-]{1,64}$/);
+    expect(siteId.startsWith('htx-may-tre-dan-')).toBe(true);
+
+    // While Claude runs, the job is at stage `ai`.
+    const stagesSeen: string[] = [];
+    const inner = okClaude();
+    deps.claude = { callTool: vi.fn(async (...a: any[]) => {
+      stagesSeen.push((await getJson<JobRecord>(deps.kv, `job:${jobId}`))!.stage);
+      return inner.callTool(...a);
+    }) } as any;
+
+    const url = `${API}/package/${siteId}`;
+    const first = await run(deps, jobId);
+    expect(first.data).toEqual({ id: jobId, siteId, state: 'ready', url, next: 'done' });
+    const second = await run(deps, jobId);
+    expect(second.data).toEqual({ id: jobId, siteId, state: 'ready', url, next: 'done' });
+    expect(stagesSeen).toEqual(['ai']);
+    expect((deps.claude as any).callTool).toHaveBeenCalledTimes(1);
+
+    const job = (await getJson<JobRecord>(deps.kv, `job:${jobId}`))!;
+    expect(job).toMatchObject({ state: 'ready', stage: 'ready', url });
+    expect(job.runner).toBeUndefined();
+    expect(await deps.kv.get(`jobidx:${jobId}`)).toBeNull();
+    expect(await deps.kv.get('stat:demos:20261108')).toBe('1');
 
     const meta = (await getJson<SiteMeta>(deps.kv, `site:${siteId}`))!;
-    expect(meta.leadKey).toHaveLength(32);
-    expect(meta).toMatchObject({ siteId, repo: siteId, phone: '0912345678', paid: false, revisions: 0, name: 'Chị Lan',
-      createdAt: '2026-11-08T05:00:00.000Z', expires: '2026-12-08T05:00:00.000Z' });
+    expect(meta.leadKey).toMatch(/^[a-z0-9]{32}$/);
+    expect(meta.handoffKey).toMatch(/^[a-z0-9]{32}$/);
+    expect(meta.handoffKey).not.toBe(meta.leadKey);
+    expect(meta).toMatchObject({ siteId, phone: '0912345678', revisions: 0, name: 'Chị Lan', template: 'tpl-thu-lead',
+      analysisReady: true, createdAt: '2026-11-08T05:00:00.000Z', expires: '2026-12-08T05:00:00.000Z' });
+    expect(meta).not.toHaveProperty('repo');
     expect(await deps.kv.get('phone:0912345678')).toBe(JSON.stringify(siteId));
-    expect((await getJson<any>(deps.kv, `sitejson:${siteId}`)).siteId).toBe(siteId);
-    expect((await getJson<any>(deps.kv, `proposal:${siteId}`)).summary).toBe('Tóm tắt');
+
+    const site = (await getJson<any>(deps.kv, `sitejson:${siteId}`))!;
+    expect(site.siteId).toBe(siteId);
+    expect(site.demo.checkoutUrl).toBe(`${TEST_ORIGIN}/proposal.html?site=${siteId}`);
+    expect((await getJson<any>(deps.kv, `analysis:${siteId}`)).free.tom_tat_doanh_nghiep).toContain('HTX Mây Tre');
+    // proposal: is still written for GET /api/proposal (web-main proposal page) until the package page replaces it.
+    expect((await getJson<any>(deps.kv, `proposal:${siteId}`)).summary).toContain('HTX Mây Tre');
+
+    // Images copied from up:<sessionId>:<n> (7-day TTL) to asset:<siteId>:<path>, living until the demo expires.
+    expect(await getJson(deps.kv, `asset:${siteId}:assets/1-anh.jpg`)).toEqual({ mime: 'image/jpeg', base64: btoa('img1') });
+    expect(await getJson(deps.kv, `asset:${siteId}:assets/2-anh.jpg`)).toEqual({ mime: 'image/jpeg', base64: btoa('img2') });
+    const listed = (await deps.kv.list({ prefix: `asset:${siteId}:` })).keys;
+    expect(listed.map((k) => k.name).sort()).toEqual([`asset:${siteId}:assets/1-anh.jpg`, `asset:${siteId}:assets/2-anh.jpg`]);
+    const ttl = listed[0].expiration! - Date.now() / 1000;
+    expect(Math.abs(ttl - 30 * 86_400)).toBeLessThan(600); // seconds until `expires` (fixed clock is 30 days before it)
+
     const sess = (await getJson<Session>(deps.kv, 'sess:sD'))!;
-    expect(sess.jobId).toBe(data.jobId);
+    expect(sess.jobId).toBe(jobId);
     expect(sess.siteId).toBe(siteId);
-    expect(sess.brief.meta?.auto).toBeDefined();
-    const job = (await getJson<Job>(deps.kv, `job:${data.jobId}`))!;
-    expect(job).toMatchObject({ id: data.jobId, siteId, state: 'pending' });
 
     expect(sheet.append).toHaveBeenCalledTimes(1);
     const row = sheet.append.mock.calls[0][0] as any;
     expect(row).toMatchObject({ ten: 'Chị Lan', sdt: '0912345678', nhu_cau: 'thu-lead', trang_thai: 'demo', siteId,
-      link_demo: `https://demo-org.github.io/${siteId}/`, link_lead: `https://api.test/leads/${siteId}?key=${meta.leadKey}` });
+      link_demo: `${API}/d/${siteId}/`, link_lead: `${API}/leads/${siteId}?key=${meta.leadKey}` });
+    expect(row.link_demo.endsWith(`/d/${siteId}/`)).toBe(true);
     expect(row.thoi_gian).toBeTruthy();
     expect(notify.send).toHaveBeenCalledTimes(1);
     const text = notify.send.mock.calls[0][0] as string;
-    expect(text).toContain('Chị Lan');
-    expect(text).toContain('0912345678');
-    expect(text).toContain(`https://demo-org.github.io/${siteId}/`);
+    for (const s of ['Chị Lan', '0912345678', `${API}/d/${siteId}/`]) expect(text).toContain(s);
+    expectNoPublisher(publisher);
+  });
+
+  it('persists brief:/docs: for the handoff page; assets get no TTL when the site is already paid at write time', async () => {
+    const { deps } = mkDeps();
+    const s = await seedSession(deps, 'sP', { uploads: 1 });
+    await putJson(deps.kv, 'sess:sP', { ...s, docsText: 'Bảng giá' });
+    const { data } = await generate(deps, { sessionId: 'sP', phone: '0912000124', name: 'Lan' }, { drive: false });
+    const siteId = await siteOfJob(deps, data.jobId);
+    await deps.kv.put(`paid:${siteId}`, '1'); // payment arrives during the AI stage
+    expect((await run(deps, data.jobId)).data.state).toBe('ready');
+    expect((await getJson<any>(deps.kv, `brief:${siteId}`)).ten_don_vi).toBe('HTX Mây Tre Đan');
+    expect(await getJson(deps.kv, `docs:${siteId}`)).toBe('Bảng giá');
+    const [k] = (await deps.kv.list({ prefix: `asset:${siteId}:` })).keys;
+    expect(k.expiration).toBeUndefined();
+  });
+
+  it('payment landing WHILE the assets are written: they are rewritten without TTL', async () => {
+    const { deps } = mkDeps();
+    await seedSession(deps, 'sQ', { uploads: 2 });
+    const { data } = await generate(deps, { sessionId: 'sQ', phone: '0912000125', name: 'Lan' }, { drive: false });
+    const siteId = await siteOfJob(deps, data.jobId);
+    const kv = deps.kv;
+    let flipped = false;
+    deps.kv = new Proxy(kv, { get(target, k) {
+      if (k === 'put') return async (key: string, ...rest: any[]) => {
+        const out = await (target.put as any)(key, ...rest);
+        if (!flipped && key.startsWith(`asset:${siteId}:`)) { flipped = true; await target.put(`paid:${siteId}`, '1'); }
+        return out;
+      };
+      const v = (target as any)[k];
+      return typeof v === 'function' ? v.bind(target) : v;
+    } });
+    expect((await run(deps, data.jobId)).data.state).toBe('ready');
+    expect(flipped).toBe(true);
+    const keys = (await kv.list({ prefix: `asset:${siteId}:` })).keys;
+    expect(keys).toHaveLength(2);
+    for (const k of keys) expect(k.expiration).toBeUndefined();
+  });
+
+  it('asset TTL never drops below 60 s for a demo expiring very soon', async () => {
+    const { deps } = mkDeps();
+    await seedSession(deps, 'sT', { uploads: 1 });
+    const { data } = await generate(deps, { sessionId: 'sT', phone: '0912000123', name: 'Lan' }, { drive: false });
+    const siteId = await siteOfJob(deps, data.jobId);
+    const meta = (await getJson<SiteMeta>(deps.kv, `site:${siteId}`))!;
+    await putJson(deps.kv, `site:${siteId}`, { ...meta, expires: new Date(deps.now().getTime() + 5_000).toISOString() });
+    expect((await run(deps, data.jobId)).data.state).toBe('ready');
+    const [k] = (await deps.kv.list({ prefix: `asset:${siteId}:` })).keys;
+    expect(k.expiration! - Date.now() / 1000).toBeGreaterThan(50);
+    expect(k.expiration! - Date.now() / 1000).toBeLessThan(120);
   });
 
   it('queues the job without calling Claude when over the daily cap', async () => {
@@ -192,7 +291,7 @@ describe('POST /api/generate', () => {
     expect(job.state).toBe('queued');
     expect(await deps.kv.get(`queue:${data.jobId}`)).not.toBeNull();
     expect(claude.callTool).not.toHaveBeenCalled();
-    expect(publisher.create).not.toHaveBeenCalled();
+    expectNoPublisher(publisher);
     const st = await handle(req('GET', `/api/status/${data.jobId}`), deps, mkCtx().ctx);
     expect(((await st.json()) as any).state).toBe('queued');
   });
@@ -204,31 +303,31 @@ describe('POST /api/generate', () => {
     const { data } = await generate(deps, { sessionId: 'sF', phone: '0912000222', name: 'Lan' });
     await deps.kv.delete('cost:20261108');
     const job = await runGenerateJob(deps, data.jobId);
-    expect(job.state).toBe('pending');
-    expect(publisher.create).toHaveBeenCalledTimes(1);
+    expect(job).toMatchObject({ state: 'ready', url: `${API}/package/${job.siteId}` });
     expect(await deps.kv.get(`queue:${data.jobId}`)).toBeNull();
+    expectNoPublisher(publisher);
   });
 
-  it('still creates a demo with default content when Claude is down', async () => {
+  it('still creates a demo with default content and analysis when Claude is down', async () => {
     const claude = { callTool: vi.fn(async () => { throw new Error('claude 529'); }) } as any;
-    const { deps, publisher } = mkDeps({ claude });
+    const { deps } = mkDeps({ claude });
     await seedSession(deps, 'sG');
     const { res, data } = await generate(deps, { sessionId: 'sG', phone: '0912000333', name: 'Lan' });
     expect(res.status).toBe(200);
-    expect(publisher.create).toHaveBeenCalledTimes(1);
-    const siteId = (publisher.create.mock.calls[0][0] as any).repoName;
+    const siteId = await siteOfJob(deps, data.jobId);
     expect((await getJson<any>(deps.kv, `sitejson:${siteId}`)).brand.name).toBe('HTX Mây Tre Đan');
+    expect((await getJson<any>(deps.kv, `analysis:${siteId}`)).free.tom_tat_doanh_nghiep).toContain('HTX Mây Tre Đan');
     expect((await getJson<any>(deps.kv, `proposal:${siteId}`)).packages[0].priceVnd).toBeGreaterThanOrEqual(10_000_000);
-    expect((await getJson<Job>(deps.kv, `job:${data.jobId}`))!.state).toBe('pending');
+    expect((await getJson<Job>(deps.kv, `job:${data.jobId}`))!.state).toBe('ready');
   });
 
-  it('(a) unpublished job gives up after 10 min, releases the phone, and the same session can retry', async () => {
-    const publisher = recPublisher({ create: vi.fn<P['create']>(async () => { throw new Error('gh down'); }) });
-    const { deps, notify } = mkDeps({ publisher });
+  it('a job not ready 10 minutes after it started is given up, releases the phone, and the same session can retry', async () => {
+    const { deps, notify } = mkDeps();
     await seedSession(deps, 'sH');
-    const first = await generate(deps, { sessionId: 'sH', phone: '0912000444', name: 'Lan' });
-    let job = (await getJson<JobRecord>(deps.kv, `job:${first.data.jobId}`))!;
-    expect(job).toMatchObject({ state: 'pending', stage: 'publishing' });
+    const first = await generate(deps, { sessionId: 'sH', phone: '0912000444', name: 'Lan' }, { drive: false });
+    // A runner took it to `ai` and died (no lease left).
+    const j = (await getJson<JobRecord>(deps.kv, `job:${first.data.jobId}`))!;
+    await putJson(deps.kv, `job:${j.id}`, { ...j, stage: 'ai', startedAt: j.createdAt });
     expect(notify.send).not.toHaveBeenCalled();
 
     const t0 = deps.now().getTime();
@@ -239,13 +338,10 @@ describe('POST /api/generate', () => {
     expect(await deps.kv.get('phone:0912000444')).toBeNull();
     expect(notify.send).toHaveBeenCalledTimes(1);
 
-    publisher.create.mockImplementation(async (o) => ({ repo: o.repoName }));
     const second = await generate(deps, { sessionId: 'sH', phone: '0912000444', name: 'Lan' });
     expect(second.res.status).toBe(200);
     expect(second.data.jobId).not.toBe(first.data.jobId);
-    job = (await getJson<JobRecord>(deps.kv, `job:${second.data.jobId}`))!;
-    expect(job).toMatchObject({ state: 'pending', stage: 'published' });
-    expect(publisher.create).toHaveBeenCalledTimes(2);
+    expect((await getJson<JobRecord>(deps.kv, `job:${second.data.jobId}`))!).toMatchObject({ state: 'ready', stage: 'ready' });
   });
 });
 
@@ -257,84 +353,26 @@ async function status(deps: Deps, jobId: string) {
 }
 
 describe('GET /api/status/:jobId', () => {
-  it('becomes ready when Pages is built and stores the url on SiteMeta', async () => {
+  it('a ready job returns the package page url; nothing waits on Pages', async () => {
     const { deps, publisher } = mkDeps();
     await seedSession(deps, 'sI');
     const { data } = await generate(deps, { sessionId: 'sI', phone: '0912000555', name: 'Lan' });
-    const siteId = (publisher.create.mock.calls[0][0] as any).repoName;
-    publisher.status.mockResolvedValueOnce({ state: 'pending' });
-    let res = await handle(req('GET', `/api/status/${data.jobId}`), deps, mkCtx().ctx);
-    expect(await res.json()).toEqual({ id: data.jobId, siteId, state: 'pending' });
-    publisher.status.mockResolvedValueOnce({ state: 'ready', url: `https://demo-org.github.io/${siteId}/` } as any);
-    res = await handle(req('GET', `/api/status/${data.jobId}`), deps, mkCtx().ctx);
-    expect(await res.json()).toEqual({ id: data.jobId, siteId, state: 'ready', url: `https://demo-org.github.io/${siteId}/` });
-    expect((await getJson<SiteMeta>(deps.kv, `site:${siteId}`))!.url).toBe(`https://demo-org.github.io/${siteId}/`);
-    expect(publisher.status).toHaveBeenCalledWith(siteId);
-  });
-
-  it('fails after 3 minutes pending and notifies the team', async () => {
-    const { deps, notify } = mkDeps();
-    await seedSession(deps, 'sJ');
-    const { data } = await generate(deps, { sessionId: 'sJ', phone: '0912000666', name: 'Lan' });
-    notify.send.mockClear();
+    const siteId = await siteOfJob(deps, data.jobId);
+    expect(await status(deps, data.jobId)).toEqual({ id: data.jobId, siteId, state: 'ready', url: `${API}/package/${siteId}` });
+    // still ready much later (no Pages timeout any more)
     const t0 = deps.now().getTime();
-    deps.now = () => new Date(t0 + 170_000);
-    let body = (await (await handle(req('GET', `/api/status/${data.jobId}`), deps, mkCtx().ctx)).json()) as any;
-    expect(body.state).toBe('pending');
-    deps.now = () => new Date(t0 + 181_000);
-    body = await (await handle(req('GET', `/api/status/${data.jobId}`), deps, mkCtx().ctx)).json();
-    expect(body.state).toBe('failed');
-    expect(body.error).toBeTruthy();
-    expect(notify.send).toHaveBeenCalledTimes(1);
+    deps.now = () => new Date(t0 + 60 * 60_000);
+    expect((await status(deps, data.jobId)).state).toBe('ready');
+    expectNoPublisher(publisher);
   });
 
-  it('(b) Pages timeout counts from publishedAt, not startedAt', async () => {
-    const { deps, notify, publisher } = mkDeps();
-    const { siteId } = await seedSite(deps);
-    const t = deps.now().getTime();
-    const ago = (ms: number) => new Date(t - ms).toISOString();
-    await putJson(deps.kv, 'job:jb', { id: 'jb', siteId, state: 'pending', kind: 'generate', sessionId: 'sR', phone: '0912345678',
-      name: 'Lan', createdAt: ago(300_000), startedAt: ago(300_000), stage: 'published', stageAt: ago(60_000), publishedAt: ago(60_000) } satisfies JobRecord);
-    expect((await status(deps, 'jb')).state).toBe('pending');
-    expect(publisher.status).toHaveBeenCalledWith(siteId);
-    expect(notify.send).not.toHaveBeenCalled();
-    deps.now = () => new Date(t + 121_000);
-    expect((await status(deps, 'jb')).state).toBe('failed');
-    expect(notify.send).toHaveBeenCalledTimes(1);
-    expect(await deps.kv.get('phone:0912345678')).toBeNull(); // never reserved here; and Pages timeout must not touch it
-  });
-
-  it('(c) status polling never runs a job; /run publishes an ai_done job without calling Claude', async () => {
-    const claude = { callTool: vi.fn(async () => { throw new Error('Claude must not be called'); }) } as any;
-    const { deps, publisher, sheet } = mkDeps({ claude });
-    const { siteId } = await seedSite(deps);
-    await putJson(deps.kv, 'phone:0912345678', siteId);
-    const t = deps.now().getTime();
-    const ago = (ms: number) => new Date(t - ms).toISOString();
-    await putJson(deps.kv, 'job:jc', { id: 'jc', siteId, state: 'pending', kind: 'generate', sessionId: 'sR', phone: '0912345678',
-      name: 'Lan', createdAt: ago(120_000), startedAt: ago(120_000), stage: 'ai_done', stageAt: ago(60_000) } satisfies JobRecord);
-    expect((await status(deps, 'jc')).state).toBe('pending');
-    expect(publisher.create).not.toHaveBeenCalled(); // GET /api/status is read-only for unpublished jobs
-
-    const r = await run(deps, 'jc');
-    expect(r.res.status).toBe(200);
-    expect(r.data).toEqual({ id: 'jc', siteId, state: 'pending', next: 'poll' });
-    expect(r.res.headers.get('access-control-allow-origin')).toBe(TEST_ORIGIN);
-    expect(publisher.create).toHaveBeenCalledTimes(1);
-    const arg = publisher.create.mock.calls[0][0];
-    expect(arg.repoName).toBe(siteId);
-    expect(arg.files.map((f) => f.path)).toEqual(['site.json']);
+  it('status polling never runs a job', async () => {
+    const { deps, claude } = mkDeps();
+    await seedSession(deps, 'sJ');
+    const { data } = await generate(deps, { sessionId: 'sJ', phone: '0912000666', name: 'Lan' }, { drive: false });
+    const siteId = await siteOfJob(deps, data.jobId);
+    expect(await status(deps, data.jobId)).toEqual({ id: data.jobId, siteId, state: 'pending' });
     expect(claude.callTool).not.toHaveBeenCalled();
-    const job = (await getJson<JobRecord>(deps.kv, 'job:jc'))!;
-    expect(job.stage).toBe('published');
-    expect(job.publishedAt).toBe(new Date(t).toISOString());
-    expect(job.runner).toBeUndefined();
-    expect(sheet.append).toHaveBeenCalledTimes(1);
-    expect(await deps.kv.get('phone:0912345678')).not.toBeNull();
-    // a further /run on a published job is a no-op
-    expect((await run(deps, 'jc')).data.next).toBe('poll');
-    expect(publisher.create).toHaveBeenCalledTimes(1);
-    expect(sheet.append).toHaveBeenCalledTimes(1);
   });
 
   it('404 for unknown job (status and run)', async () => {
@@ -345,19 +383,22 @@ describe('GET /api/status/:jobId', () => {
   });
 });
 
-async function seedSite(deps: Deps, o: { revisions?: number; sessionId?: string } = {}) {
-  const siteId = 'demo-htx-abcd';
+const SITE = 'htx-abcdef';
+async function seedSite(deps: Deps, o: { revisions?: number; sessionId?: string; meta?: Partial<SiteMeta> } = {}) {
+  const siteId = SITE;
   const s = await seedSession(deps, o.sessionId ?? 'sR');
   s.siteId = siteId; s.jobId = 'j0';
   await putJson(deps.kv, `sess:${s.id}`, s);
-  await putJson(deps.kv, `site:${siteId}`, { siteId, repo: siteId, phone: '0912345678', leadKey: 'k'.repeat(32),
-    url: `https://demo-org.github.io/${siteId}/`, expires: '2026-12-08T05:00:00.000Z', paid: false,
-    revisions: o.revisions ?? 0, createdAt: '2026-11-08T05:00:00.000Z', name: 'Lan' } satisfies SiteMeta);
+  await putJson(deps.kv, `site:${siteId}`, { siteId, phone: '0912345678', leadKey: 'k'.repeat(32), handoffKey: 'h'.repeat(32),
+    template: 'tpl-thu-lead', expires: '2026-12-08T05:00:00.000Z', revisions: o.revisions ?? 0,
+    createdAt: '2026-11-08T05:00:00.000Z', name: 'Lan', analysisReady: true, ...o.meta } satisfies SiteMeta);
   const site = defaultSite('tpl-thu-lead', s.brief, siteId);
   site.demo.checkoutUrl = `${TEST_ORIGIN}/proposal.html?site=${siteId}`;
   await putJson(deps.kv, `sitejson:${siteId}`, site);
   await putJson(deps.kv, `proposal:${siteId}`, proposal);
-  return { siteId, site };
+  const analysis = defaultAnalysis(s.brief);
+  await putJson(deps.kv, `analysis:${siteId}`, analysis);
+  return { siteId, site, analysis };
 }
 
 const revise = async (deps: Deps, body: unknown) => {
@@ -366,34 +407,58 @@ const revise = async (deps: Deps, body: unknown) => {
 };
 
 describe('POST /api/revise', () => {
-  it('commits the new site.json and counts the revision', async () => {
+  it('updates sitejson: only, counts the revision and returns a ready Job immediately', async () => {
     const { deps, publisher } = mkDeps({ claude: okClaude({ hero: { title: 'Tiêu đề mới', subtitle: 's', cta: 'c' } }) });
-    const { siteId } = await seedSite(deps);
+    const { siteId, analysis } = await seedSite(deps);
     const { res, data } = await revise(deps, { siteId, sessionId: 'sR', request: 'Đổi tiêu đề' });
     expect(res.status).toBe(200);
     expect(data.jobId).toBeTruthy();
-    expect(publisher.update).toHaveBeenCalledTimes(1);
-    const [repo, files, msg] = publisher.update.mock.calls[0] as any[];
-    expect(repo).toBe(siteId);
-    expect(files.map((f: any) => f.path)).toEqual(['site.json']);
-    const site = JSON.parse(unb64(files[0].base64));
+    expect(data).toEqual({ jobId: data.jobId, id: data.jobId, siteId, state: 'ready', url: `${API}/package/${siteId}`, revisionsLeft: 2 });
+    const site = (await getJson<any>(deps.kv, `sitejson:${siteId}`))!;
     expect(site.hero.title).toBe('Tiêu đề mới');
     expect(site.siteId).toBe(siteId);
     expect(site.demo.checkoutUrl).toBe(`${TEST_ORIGIN}/proposal.html?site=${siteId}`);
-    expect(msg).toBeTruthy();
     expect((await getJson<SiteMeta>(deps.kv, `site:${siteId}`))!.revisions).toBe(1);
-    expect((await getJson<any>(deps.kv, `sitejson:${siteId}`)).hero.title).toBe('Tiêu đề mới');
-    const job = (await (await handle(req('GET', `/api/status/${data.jobId}`), deps, mkCtx().ctx)).json()) as any;
-    expect(job.siteId).toBe(siteId);
+    expect(await getJson(deps.kv, `analysis:${siteId}`)).toEqual(analysis); // revise never touches the analysis
+    expect(await status(deps, data.jobId)).toEqual({ id: data.jobId, siteId, state: 'ready', url: `${API}/package/${siteId}` });
+    expectNoPublisher(publisher);
   });
 
   it('the 4th revision returns 409', async () => {
-    const { deps, publisher } = mkDeps();
+    const { deps, claude } = mkDeps();
     const { siteId } = await seedSite(deps, { revisions: 3 });
     const { res, data } = await revise(deps, { siteId, sessionId: 'sR', request: 'Đổi màu' });
     expect(res.status).toBe(409);
     expect(data.error).toMatch(/3 lượt sửa/);
-    expect(publisher.update).not.toHaveBeenCalled();
+    expect(claude.callTool).not.toHaveBeenCalled();
+  });
+
+  it('410 "Bản dùng thử đã hết hạn" when the demo expired unpaid', async () => {
+    const { deps, claude } = mkDeps();
+    const { siteId, site } = await seedSite(deps, { meta: { expires: '2026-11-08T04:59:59.000Z' } });
+    const { res, data } = await revise(deps, { siteId, sessionId: 'sR', request: 'Đổi màu' });
+    expect(res.status).toBe(410);
+    expect(data.error).toContain('Bản dùng thử đã hết hạn');
+    expect(claude.callTool).not.toHaveBeenCalled();
+    expect(await getJson(deps.kv, `sitejson:${siteId}`)).toEqual(site);
+    expect((await getJson<SiteMeta>(deps.kv, `site:${siteId}`))!.revisions).toBe(0);
+  });
+
+  it('410 when the demo was removed, even before its expiry date', async () => {
+    const { deps, claude } = mkDeps();
+    const { siteId } = await seedSite(deps, { meta: { removed: true } });
+    const { res, data } = await revise(deps, { siteId, sessionId: 'sR', request: 'Đổi màu' });
+    expect(res.status).toBe(410);
+    expect(data.error).toContain('Bản dùng thử đã hết hạn');
+    expect(claude.callTool).not.toHaveBeenCalled();
+  });
+
+  it('an expired but paid demo (paid: key) can still be revised', async () => {
+    const { deps } = mkDeps();
+    const { siteId } = await seedSite(deps, { meta: { expires: '2026-11-01T00:00:00.000Z' } });
+    await putJson(deps.kv, `paid:${siteId}`, { orderCode: 1 });
+    const { res } = await revise(deps, { siteId, sessionId: 'sR', request: 'Đổi màu' });
+    expect(res.status).toBe(200);
   });
 
   it('403 when the session does not own the site', async () => {
@@ -406,43 +471,43 @@ describe('POST /api/revise', () => {
 
   it('404 for unknown site', async () => {
     const { deps } = mkDeps();
-    const { res } = await revise(deps, { siteId: 'demo-none-abcd', sessionId: 'sR', request: 'x' });
+    const { res } = await revise(deps, { siteId: 'none-abcdef', sessionId: 'sR', request: 'x' });
     expect(res.status).toBe(404);
   });
 
   it('422 without consuming a revision when the AI output stays invalid', async () => {
     const claude = { callTool: vi.fn(async () => ({ input: { site: { nope: 1 } }, usage })) } as any;
-    const { deps, publisher } = mkDeps({ claude });
-    const { siteId } = await seedSite(deps, { revisions: 1 });
+    const { deps } = mkDeps({ claude });
+    const { siteId, site } = await seedSite(deps, { revisions: 1 });
     const { res, data } = await revise(deps, { siteId, sessionId: 'sR', request: 'Đổi màu' });
     expect(res.status).toBe(422);
     expect(data.error).toBeTruthy();
-    expect(publisher.update).not.toHaveBeenCalled();
     expect((await getJson<SiteMeta>(deps.kv, `site:${siteId}`))!.revisions).toBe(1);
+    expect(await getJson(deps.kv, `sitejson:${siteId}`)).toEqual(site);
   });
 });
 
 describe('GET /api/proposal/:siteId', () => {
-  it('returns the proposal with site name and url', async () => {
+  it('returns the proposal with site name and demo url', async () => {
     const { deps } = mkDeps();
     const { siteId, site } = await seedSite(deps);
     const res = await handle(req('GET', `/api/proposal/${siteId}`), deps, mkCtx().ctx);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
-      proposal, site: { name: site.brand.name, url: `https://demo-org.github.io/${siteId}/` },
+      proposal, site: { name: site.brand.name, url: `${API}/d/${siteId}/` },
       // purchasable packages (ids for POST /api/checkout; prices are what checkout charges)
       packages: [{ id: 'co-ban', name: 'Cơ bản', priceVnd: 10_000_000, items: ['Website'] }],
       paid: false,
     });
     await putJson(deps.kv, `paid:${siteId}`, { orderCode: 1 });
     expect(((await (await handle(req('GET', `/api/proposal/${siteId}`), deps, mkCtx().ctx)).json()) as any).paid).toBe(true);
-    const miss = await handle(req('GET', '/api/proposal/demo-x-zzzz'), deps, mkCtx().ctx);
+    const miss = await handle(req('GET', '/api/proposal/x-zzzzzz'), deps, mkCtx().ctx);
     expect(miss.status).toBe(404);
   });
 });
 
 describe('client-driven execution: POST /api/jobs/:jobId/run', () => {
-  it('/api/generate does not run anything (no waitUntil); each /run executes exactly one stage', async () => {
+  it('/api/generate does not run anything (no waitUntil); one /run runs the AI stage to ready', async () => {
     const { deps, publisher, claude, sheet } = mkDeps();
     await seedSession(deps, 'sK', { uploads: 1 });
     const waits: unknown[] = [];
@@ -456,23 +521,26 @@ describe('client-driven execution: POST /api/jobs/:jobId/run', () => {
     expect(job).toMatchObject({ state: 'pending', stage: 'queued' });
     const siteId = job.siteId;
     expect(await deps.kv.get(`exp:20261208:${siteId}`)).not.toBeNull();
+    const meta = (await getJson<SiteMeta>(deps.kv, `site:${siteId}`))!;
+    expect(meta.analysisReady).toBe(false);
+    expect(meta.handoffKey).toMatch(/^[a-z0-9]{32}$/); // created with the site record
 
     const a = await run(deps, jobId);
-    expect(a.data).toEqual({ id: jobId, siteId, state: 'pending', next: 'run' });
+    expect(a.data).toEqual({ id: jobId, siteId, state: 'ready', url: `${API}/package/${siteId}`, next: 'done' });
     expect(claude.callTool).toHaveBeenCalledTimes(1);
     expect(claude.callTool.mock.calls[0][0].timeoutMs).toBe(120_000);
-    expect(publisher.create).not.toHaveBeenCalled();
     job = (await getJson<JobRecord>(deps.kv, `job:${jobId}`))!;
-    expect(job.stage).toBe('ai_done');
+    expect(job.stage).toBe('ready');
     expect(job.runner).toBeUndefined(); // lease released at the end of the stage
     expect(await costToday(deps)).toBe(10 * 3 + 10 * 15);
-
-    const b = await run(deps, jobId);
-    expect(b.data.next).toBe('poll');
-    expect(publisher.create).toHaveBeenCalledTimes(1);
     expect(sheet.append).toHaveBeenCalledTimes(1);
-    expect(await deps.kv.get(`jobidx:${jobId}`)).toBeNull();
-    expect(await deps.kv.get('stat:demos:20261108')).toBe('1');
+
+    const b = await run(deps, jobId); // no-op
+    expect(b.data.next).toBe('done');
+    expect(claude.callTool).toHaveBeenCalledTimes(1);
+    expect(sheet.append).toHaveBeenCalledTimes(1);
+    expect((await getJson<SiteMeta>(deps.kv, `site:${siteId}`))!.handoffKey).toBe(meta.handoffKey);
+    expectNoPublisher(publisher);
   });
 
   it('a queued job is not run while over the daily cap (next: poll)', async () => {
@@ -484,18 +552,14 @@ describe('client-driven execution: POST /api/jobs/:jobId/run', () => {
     expect(claude.callTool).not.toHaveBeenCalled();
   });
 
-  it('a publish failure keeps the stage, frees the lease and answers next: wait', async () => {
-    const publisher = recPublisher({ create: vi.fn<P['create']>(async () => { throw new Error('gh 502'); }) });
-    const { deps } = mkDeps({ publisher });
+  it('an unexpected stage error fails the job, releases the phone and notifies the team', async () => {
+    const { deps, notify } = mkDeps();
     await seedSession(deps, 'sM');
     const { data } = await generate(deps, { sessionId: 'sM', phone: '0912000999', name: 'Lan' }, { drive: false });
-    expect((await run(deps, data.jobId)).data.next).toBe('run');
-    expect((await run(deps, data.jobId)).data).toMatchObject({ state: 'pending', next: 'wait' });
-    const job = (await getJson<JobRecord>(deps.kv, `job:${data.jobId}`))!;
-    expect(job).toMatchObject({ stage: 'publishing', state: 'pending' });
-    expect(job.runner).toBeUndefined();
-    publisher.create.mockImplementation(async (o) => ({ repo: o.repoName }));
-    expect((await run(deps, data.jobId)).data.next).toBe('poll');
+    await deps.kv.delete('sess:sM');
+    expect((await run(deps, data.jobId)).data).toMatchObject({ state: 'failed', next: 'done' });
+    expect(await deps.kv.get('phone:0912000999')).toBeNull();
+    expect(notify.send).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -504,30 +568,34 @@ describe('job lease', () => {
     const t = deps.now().getTime();
     return { id: 'jl', siteId, state: 'pending', kind: 'generate', sessionId: 'sR', phone: '0912345678', name: 'Lan',
       createdAt: new Date(t - 60_000).toISOString(), startedAt: new Date(t - 60_000).toISOString(),
-      stage: 'ai_done', stageAt: new Date(t - 60_000).toISOString(), ...o };
+      stage: 'ai', stageAt: new Date(t - 60_000).toISOString(), ...o };
   };
   const later = (deps: Deps, ms: number) => new Date(deps.now().getTime() + ms).toISOString();
 
-  it('a second runner skips a job whose lease is live (no publish, no sheet/notify), and takes over once it expires', async () => {
-    const { deps, publisher, sheet, notify } = mkDeps();
+  it('a second runner skips a job whose lease is live (no AI, no sheet/notify), and takes over once it expires', async () => {
+    const { deps, claude, sheet, notify } = mkDeps();
     const { siteId } = await seedSite(deps);
-    await putJson(deps.kv, 'job:jl', jobAt(deps, siteId, { stage: 'publishing', runner: 'other', leaseUntil: later(deps, 60_000) }));
+    await putJson(deps.kv, 'job:jl', jobAt(deps, siteId, { runner: 'other', leaseUntil: later(deps, 60_000) }));
     expect((await run(deps, 'jl')).data).toMatchObject({ state: 'pending', next: 'wait' });
     expect((await runGenerateJob(deps, 'jl')).state).toBe('pending');
-    expect(publisher.create).not.toHaveBeenCalled();
+    expect(claude.callTool).not.toHaveBeenCalled();
     expect(sheet.append).not.toHaveBeenCalled();
     expect(notify.send).not.toHaveBeenCalled();
 
     const t0 = deps.now().getTime();
     deps.now = () => new Date(t0 + 61_000);
-    expect((await run(deps, 'jl')).data.next).toBe('poll');
-    expect(publisher.create).toHaveBeenCalledTimes(1);
+    expect((await run(deps, 'jl')).data).toMatchObject({ state: 'ready', next: 'done' });
+    expect(claude.callTool).toHaveBeenCalledTimes(1);
   });
 
   it('a runner that lost its lease mid-stage cannot write its (stale) results', async () => {
-    const { deps } = mkDeps();
-    const { siteId } = await seedSite(deps);
-    await deps.kv.delete(`sitejson:${siteId}`); await deps.kv.delete(`proposal:${siteId}`);
+    const { deps, sheet } = mkDeps();
+    const s = await seedSession(deps, 'sR', { uploads: 1 });
+    const siteId = SITE;
+    await putJson(deps.kv, `site:${siteId}`, { siteId, phone: '0912345678', leadKey: 'k'.repeat(32), handoffKey: 'h'.repeat(32),
+      template: 'tpl-thu-lead', expires: '2026-12-08T05:00:00.000Z', revisions: 0, createdAt: '2026-11-08T05:00:00.000Z',
+      name: 'Lan', analysisReady: false } satisfies SiteMeta);
+    expect(s.uploads).toHaveLength(1);
     await putJson(deps.kv, 'job:jl', jobAt(deps, siteId, { stage: 'queued', state: 'pending' }));
     // While runner A waits on Claude, its lease is taken over by runner B.
     const claude = { callTool: vi.fn(async () => {
@@ -538,8 +606,11 @@ describe('job lease', () => {
     deps.claude = claude;
     const r = await run(deps, 'jl');
     expect(r.data).toMatchObject({ state: 'pending', next: 'wait' });
-    expect(await deps.kv.get(`sitejson:${siteId}`)).toBeNull();
-    expect(await deps.kv.get(`proposal:${siteId}`)).toBeNull();
+    for (const k of [`sitejson:${siteId}`, `proposal:${siteId}`, `analysis:${siteId}`, `asset:${siteId}:assets/1-anh.jpg`]) {
+      expect(await deps.kv.get(k)).toBeNull();
+    }
+    expect((await getJson<SiteMeta>(deps.kv, `site:${siteId}`))!.analysisReady).toBe(false);
+    expect(sheet.append).not.toHaveBeenCalled();
     const job = (await getJson<JobRecord>(deps.kv, 'job:jl'))!;
     expect(job).toMatchObject({ runner: 'B', stageAt: 'B-was-here', stage: 'ai' });
     expect(await costToday(deps)).toBeGreaterThan(0); // the billed call is still counted
@@ -551,8 +622,8 @@ describe('job lease', () => {
     await putJson(deps.kv, 'phone:0912345678', siteId);
     const t = deps.now().getTime();
     const old = new Date(t - 20 * 60_000).toISOString();
-    await putJson(deps.kv, 'job:jl', jobAt(deps, siteId, { stage: 'publishing', createdAt: old, startedAt: old,
-      runner: 'publisher-1', leaseUntil: later(deps, 90_000) }));
+    await putJson(deps.kv, 'job:jl', jobAt(deps, siteId, { createdAt: old, startedAt: old,
+      runner: 'run-1', leaseUntil: later(deps, 90_000) }));
     expect((await status(deps, 'jl')).state).toBe('pending');
     expect((await run(deps, 'jl')).data.state).toBe('pending');
     expect(await deps.kv.get('phone:0912345678')).not.toBeNull();
@@ -563,7 +634,7 @@ describe('job lease', () => {
     expect(st.state).toBe('failed');
     expect(await deps.kv.get('phone:0912345678')).toBeNull();
     expect(notify.send).toHaveBeenCalledTimes(1);
-    // the old runner coming back cannot mark it published
+    // the old runner coming back cannot mark it ready
     expect((await run(deps, 'jl')).data).toMatchObject({ state: 'failed', next: 'done' });
   });
 });

@@ -9,7 +9,6 @@ import { type JobRecord, loadJob, saveJob } from './record';
  * re-verification before each write this keeps stale runners from overwriting newer state.
  */
 export const LEASE_AI_MS = 5 * 60_000; // > GEN_TOTAL_BUDGET_MS plus KV writes
-export const LEASE_PUBLISH_MS = 2 * 60_000;
 
 export class LeaseLostError extends Error {
   constructor(jobId: string) { super(`lease lost for job ${jobId}`); this.name = 'LeaseLostError'; }

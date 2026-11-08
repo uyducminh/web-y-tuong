@@ -101,18 +101,28 @@ describe('POST /api/docs', () => {
     expect(res.status).toBe(404);
   });
 
-  it('two calls totalling 9000 chars truncate to 8000 with separator', async () => {
+  it('two calls totalling 25000 chars truncate to 20000 with separator', async () => {
     const deps = makeTestDeps(); await mkSession(deps);
-    await handle(docs({ sessionId: 's1', text: 'a'.repeat(4000) }), deps, ctx);
-    const res = await handle(docs({ sessionId: 's1', text: 'b'.repeat(5000) }), deps, ctx);
+    await handle(docs({ sessionId: 's1', text: 'a'.repeat(10000) }), deps, ctx);
+    const res = await handle(docs({ sessionId: 's1', text: 'b'.repeat(15000) }), deps, ctx);
     expect(res.status).toBe(200);
     const s = await getJson<Session>(deps.kv, 'sess:s1');
-    expect(s!.docsText.length).toBe(8000);
-    expect(s!.docsText.slice(4000, 4002)).toBe('\n\n');
+    expect(s!.docsText.length).toBe(20000);
+    expect(s!.docsText.slice(10000, 10002)).toBe('\n\n');
   });
 
   it('400 on empty text', async () => {
     const deps = makeTestDeps(); await mkSession(deps);
     expect((await handle(docs({ sessionId: 's1', text: '  ' }), deps, ctx)).status).toBe(400);
+  });
+});
+
+describe('POST /api/docs limits', () => {
+  it('caps accumulated docsText at 20000 chars', async () => {
+    const deps = makeTestDeps(); await mkSession(deps);
+    await handle(docs({ sessionId: 's1', text: 'a'.repeat(15000) }), deps, ctx);
+    const r = await handle(docs({ sessionId: 's1', text: 'b'.repeat(10000) }), deps, ctx);
+    expect(((await r.json()) as any).length).toBe(20000);
+    expect((await getJson<Session>(deps.kv, 'sess:s1'))!.docsText.length).toBe(20000);
   });
 });

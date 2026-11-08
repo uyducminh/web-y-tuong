@@ -1,12 +1,12 @@
 import { slugify } from '@sme/schema';
 import type { Deps, Session } from '../types';
 import { errorJson, json, readJson } from '../http';
-import { getJson, putJson } from '../kv';
+import { putJson } from '../kv';
+import { loadSession, SESSION_TTL as TTL, updateSession } from '../session-store';
 
-const TTL = 7 * 24 * 3600;
 export const MAX_FILES = 10;
 export const MAX_BYTES = 5 * 1024 * 1024;
-export const MAX_DOCS_CHARS = 8000;
+export const MAX_DOCS_CHARS = 20_000;
 const NO_SESSION = 'Không tìm thấy phiên trò chuyện. Vui lòng tải lại trang để bắt đầu lại.';
 const ALLOWED = new Set(['image/jpeg', 'image/png', 'image/webp']);
 
@@ -36,7 +36,7 @@ export async function postUpload(req: Request, deps: Deps): Promise<Response> {
   if (typeof sessionId !== 'string' || !sessionId || !file || typeof file === 'string') {
     return errorJson(400, 'Yêu cầu không hợp lệ.');
   }
-  const s = await getJson<Session>(deps.kv, `sess:${sessionId}`);
+  const s = await loadSession(deps, sessionId);
   if (!s) return errorJson(404, NO_SESSION);
   if (s.uploads.length >= MAX_FILES) return errorJson(413, `Chỉ được tải lên tối đa ${MAX_FILES} ảnh.`);
   if (file.size > MAX_BYTES) return errorJson(413, 'Ảnh quá lớn. Mỗi ảnh tối đa 5MB.');
@@ -47,12 +47,19 @@ export async function postUpload(req: Request, deps: Deps): Promise<Response> {
   const kind = sniff(bytes);
   if (!kind) return errorJson(415, typeMsg);
 
-  const n = s.uploads.length + 1;
-  const base = (file.name || 'anh').replace(/\.[^.]*$/, '');
-  const path = `assets/${n}-${slugify(base) || 'anh'}.${kind.ext}`;
+  const base = slugify((file.name || 'anh').replace(/\.[^.]*$/, '')) || 'anh';
+  // Number from the FRESH upload list (read right before the write), never from the copy read before the body was parsed.
+  const saved = await updateSession(deps, sessionId, (cur: Session) => {
+    if (cur.uploads.length >= MAX_FILES) return null;
+    const n = cur.uploads.length + 1;
+    const path = `assets/${n}-${base}.${kind.ext}`;
+    cur.uploads.push(path);
+    return { n, path };
+  });
+  if (!saved) return errorJson(404, NO_SESSION);
+  if (!saved.result) return errorJson(413, `Chỉ được tải lên tối đa ${MAX_FILES} ảnh.`);
+  const { n, path } = saved.result;
   await putJson(deps.kv, `up:${sessionId}:${n}`, { path, mime: kind.mime, base64: toBase64(bytes) }, TTL);
-  s.uploads.push(path);
-  await putJson(deps.kv, `sess:${sessionId}`, s, TTL);
   return json({ path });
 }
 
@@ -61,9 +68,11 @@ export async function postDocs(req: Request, deps: Deps): Promise<Response> {
   if (!body || typeof body.sessionId !== 'string' || typeof body.text !== 'string' || !body.text.trim()) {
     return errorJson(400, 'Yêu cầu không hợp lệ.');
   }
-  const s = await getJson<Session>(deps.kv, `sess:${body.sessionId}`);
-  if (!s) return errorJson(404, NO_SESSION);
-  s.docsText = (s.docsText ? `${s.docsText}\n\n${body.text}` : body.text).slice(0, MAX_DOCS_CHARS);
-  await putJson(deps.kv, `sess:${s.id}`, s, TTL);
+  const text = body.text;
+  const saved = await updateSession(deps, body.sessionId, (cur: Session) => {
+    cur.docsText = (cur.docsText ? `${cur.docsText}\n\n${text}` : text).slice(0, MAX_DOCS_CHARS);
+  });
+  if (!saved) return errorJson(404, NO_SESSION);
+  const s = saved.s;
   return json({ length: s.docsText.length });
 }

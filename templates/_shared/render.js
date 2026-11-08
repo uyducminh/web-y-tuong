@@ -330,9 +330,10 @@ export const DEFAULT_PLATFORM_NAME = 'Web Làng';
 
 function renderBadge(site, opts) {
   const platform = (opts && opts.platformName) || DEFAULT_PLATFORM_NAME;
-  const b = el('div', { class: 'demo-badge', role: 'note' }, el('span', { text: `Bản dùng thử – tạo bởi ${platform}` }));
+  const b = el('div', { class: 'demo-badge', role: 'note' }, el('span', { text: `Bản dùng thử – ${platform}` }));
+  // demo.checkoutUrl = the trial package page (/package/<siteId>) when served by the Worker at /d/.
   const url = safeUrl(site.demo && site.demo.checkoutUrl);
-  if (url) b.append(el('a', { class: 'btn btn-sm', href: url, text: 'Triển khai chính thức' }));
+  if (url) b.append(el('a', { class: 'btn btn-sm', href: url, text: 'Xem bộ hồ sơ' }));
   return b;
 }
 

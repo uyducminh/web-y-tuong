@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { handle } from '../src/index';
 import { makeTestDeps, TEST_ORIGIN } from './fakes';
 import { getJson } from '../src/kv';
-import { BriefSchema } from '@sme/schema';
+import { BriefV2Schema } from '@sme/schema';
 import { vi } from 'vitest';
 import type { Session } from '../src/types';
 
@@ -30,7 +30,7 @@ describe('POST /api/session', () => {
     expect(s?.messages).toEqual([]);
     expect(s?.uploads).toEqual([]);
     expect(s?.docsText).toBe('');
-    expect(s?.brief).toEqual(BriefSchema.parse({}));
+    expect(s?.brief).toEqual(BriefV2Schema.parse({}));
     const call = putSpy.mock.calls.find((c) => c[0] === `sess:${sessionId}`);
     expect((call![2] as any).expirationTtl).toBe(7 * 24 * 3600);
     // funnel counter, ~400-day TTL

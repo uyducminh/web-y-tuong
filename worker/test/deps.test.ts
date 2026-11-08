@@ -25,3 +25,24 @@ describe('deps', () => {
     await expect(publisherFromEnv(cf, configFromEnv(cf)).status('x')).rejects.toThrow('not implemented');
   });
 });
+
+describe('makeDeps without GitHub', () => {
+  it('does not throw when every GH_* variable is unset (publisher is optional)', async () => {
+    const { makeDeps } = await import('../src/deps');
+    const d = makeDeps({ KV: {} as any } as any);
+    expect(d.publisher).toBeTruthy();
+    expect(d.config.ghOrg).toBe('');
+  });
+});
+
+describe('demo config', () => {
+  it('CONTACT_PHONE, PLATFORM_NAME (default "Web Làng"), ALLOW_TEST_SEED only when "1"', () => {
+    const d = configFromEnv({} as any);
+    expect(d.contactPhone).toBe('');
+    expect(d.platformName).toBe('Web Làng');
+    expect(d.allowTestSeed).toBe(false);
+    const c = configFromEnv({ CONTACT_PHONE: '0912', PLATFORM_NAME: 'Làng X', ALLOW_TEST_SEED: '1' } as any);
+    expect([c.contactPhone, c.platformName, c.allowTestSeed]).toEqual(['0912', 'Làng X', true]);
+    expect(configFromEnv({ ALLOW_TEST_SEED: 'true' } as any).allowTestSeed).toBe(false);
+  });
+});

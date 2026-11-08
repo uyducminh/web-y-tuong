@@ -1,6 +1,6 @@
 // Tách chữ từ PDF/Word ngay trên trình duyệt. Thư viện được truyền vào (libs) để trang dùng bản CDN,
 // còn test dùng bản npm: extractText(file, { pdfjs, mammoth }).
-export const MAX_CHARS = 8000;
+export const MAX_CHARS = 20000; // = giới hạn docsText ở Worker
 
 const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 

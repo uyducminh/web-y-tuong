@@ -1,4 +1,4 @@
-import type { Brief, TemplateId } from '@sme/schema';
+import type { BriefV2, TemplateId } from '@sme/schema';
 
 export type Msg = { role: 'user' | 'assistant'; content: string };
 
@@ -8,6 +8,9 @@ export type Config = {
   dailyCapUsd: number;
   packages: { id: string; name: string; priceVnd: number; items: string[] }[];
   allowTestPrice: boolean; publisher: 'github' | 'cloudflare'; apiBase: string;
+  /** Shown on the 410 "trial expired" page. */ contactPhone: string;
+  /** `<meta name=platform-name>` on /d/ (default "Web Làng"). */ platformName: string;
+  /** Test-only KV seed route (ALLOW_TEST_SEED=1). Never set in wrangler.toml. */ allowTestSeed: boolean;
 };
 
 export interface ClaudeClient {
@@ -24,9 +27,16 @@ export interface Publisher {
   remove(repo: string): Promise<void>;
 }
 
-export type SiteMeta = { siteId: string; repo: string; phone: string; leadKey: string; url?: string;
-  expires: string; paid: boolean; revisions: number; createdAt: string; name: string;
-  /** Set by the cron once an expired unpaid demo's repo has been deleted. */ removed?: boolean };
+/**
+ * `site:<siteId>`. The demo is served by the Worker from KV (`sitejson:`, `analysis:`, `asset:<id>:<path>`), no GitHub repo.
+ * `paid` is legacy/compat only (the webhook still mirrors it): `paid:<siteId>` (sites.ts isPaid) is the only source of truth.
+ */
+export type SiteMeta = { siteId: string; phone: string; leadKey: string;
+  /** Handoff link key (deps.rand(32)), created with the site record. */ handoffKey: string;
+  template: TemplateId; expires: string; revisions: number; createdAt: string; name: string;
+  /** true once the AI stage stored `analysis:<siteId>`. */ analysisReady: boolean;
+  /** @deprecated compat only — never read for gating; use isPaid. */ paid?: boolean;
+  /** Set by the cron once an expired unpaid demo has been taken down. */ removed?: boolean };
 
 export type Job = { id: string; siteId: string; state: 'pending' | 'ready' | 'failed' | 'queued'; url?: string; error?: string };
 
@@ -51,7 +61,7 @@ export interface Deps {
 }
 
 export type Session = { id: string; ip: string; createdAt: string; turns: number;
-  brief: Brief; messages: { role: 'user' | 'assistant'; content: string }[];
+  brief: BriefV2; messages: { role: 'user' | 'assistant'; content: string }[];
   uploads: string[]; docsText: string; jobId?: string; siteId?: string };
 
 export type Env = {
@@ -59,6 +69,7 @@ export type Env = {
   WEB_ORIGIN?: string; GH_ORG?: string; CHAT_MODEL?: string; GEN_MODEL?: string;
   PRICE_IN_PER_MTOK?: string; PRICE_OUT_PER_MTOK?: string; DAILY_CAP_USD?: string;
   PACKAGES?: string; ALLOW_TEST_PRICE?: string; PUBLISHER?: string; API_BASE?: string;
+  CONTACT_PHONE?: string; PLATFORM_NAME?: string; ALLOW_TEST_SEED?: string;
   TURNSTILE_SECRET?: string;
   // GitHub App (secrets except GH_ORG): used when PUBLISHER=github
   GH_APP_ID?: string; GH_APP_PRIVATE_KEY?: string; GH_INSTALLATION_ID?: string;

@@ -6,11 +6,11 @@ import type { SiteMeta } from '../src/types';
 
 const ctx = { waitUntil() {}, passThroughOnException() {} } as unknown as ExecutionContext;
 const KEY = 'k'.repeat(32);
-const GH = 'https://demo-org.github.io';
+const GH = 'https://api.test'; // the Worker origin (new URL(apiBase).origin): demos are served at /d/
 
 async function mkSite(deps: ReturnType<typeof makeTestDeps>, id = 'site1') {
-  const meta = { siteId: id, repo: 'demo-x-abcd', phone: '0900000000', leadKey: KEY, expires: '2026-12-01', paid: false,
-    revisions: 0, createdAt: '2026-11-08', name: 'X' } as SiteMeta;
+  const meta: SiteMeta = { siteId: id, phone: '0900000000', leadKey: KEY, handoffKey: 'h'.repeat(32), template: 'tpl-thu-lead',
+    expires: '2026-12-01', revisions: 0, createdAt: '2026-11-08', name: 'X', analysisReady: true };
   await putJson(deps.kv, `site:${id}`, meta);
 }
 const post = (id: string, body: unknown, ip = '1.2.3.4') => new Request(`https://w.test/lead/${id}`, {
@@ -19,7 +19,7 @@ const get = (id: string, q: string) => new Request(`https://w.test/leads/${id}?$
 const stored = (deps: any, id = 'site1') => getJson<{ at: string; fields: Record<string, string> }[]>(deps.kv, `leads:${id}`);
 
 describe('POST /lead/:siteId', () => {
-  it('stores a lead (demo-form payload shape) with CORS for the github.io origin', async () => {
+  it('stores a lead (demo-form payload shape) with CORS for the Worker origin', async () => {
     const deps = makeTestDeps(); await mkSite(deps);
     const res = await handle(post('site1', { name: 'An', phone: '09', note: 'hi', website: '' }), deps, ctx);
     expect(res.status).toBe(200);
@@ -92,8 +92,8 @@ describe('GET /leads/:siteId', () => {
   });
   it('403 when the site has no leadKey, even with an empty key', async () => {
     const deps = makeTestDeps();
-    await putJson(deps.kv, 'site:nokey', { siteId: 'nokey', repo: 'r', phone: '0', leadKey: '', expires: '', paid: false,
-      revisions: 0, createdAt: '', name: 'X' } satisfies SiteMeta);
+    await putJson(deps.kv, 'site:nokey', { siteId: 'nokey', phone: '0', leadKey: '', handoffKey: '', template: 'tpl-thu-lead', expires: '',
+      revisions: 0, createdAt: '', name: 'X', analysisReady: true } satisfies SiteMeta);
     expect((await handle(get('nokey', 'key='), deps, ctx)).status).toBe(403);
     expect((await handle(get('nokey', ''), deps, ctx)).status).toBe(403);
   });

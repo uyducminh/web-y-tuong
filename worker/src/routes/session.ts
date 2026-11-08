@@ -1,7 +1,7 @@
 import type { Deps, Session } from '../types';
 import { getIp, errorJson, json, readJson } from '../http';
 import { dayStamp, incr, putJson } from '../kv';
-import { BriefSchema } from '@sme/schema';
+import { BriefV2Schema } from '@sme/schema';
 import { bumpStat } from '../sites';
 
 const SESSIONS_PER_IP_PER_DAY = 3;
@@ -22,7 +22,7 @@ export async function createSession(req: Request, deps: Deps): Promise<Response>
   const id = deps.rand(24);
   const session: Session = {
     id, ip, createdAt: now.toISOString(), turns: 0,
-    brief: BriefSchema.parse({}), messages: [], uploads: [], docsText: '',
+    brief: BriefV2Schema.parse({}), messages: [], uploads: [], docsText: '',
   };
   await putJson(deps.kv, `sess:${id}`, session, SESSION_TTL);
   await bumpStat(deps, 'sessions');

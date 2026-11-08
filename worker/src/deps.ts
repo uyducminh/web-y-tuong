@@ -34,6 +34,9 @@ export function configFromEnv(env: Env): Config {
     allowTestPrice: env.ALLOW_TEST_PRICE === '1',
     publisher: env.PUBLISHER === 'cloudflare' ? 'cloudflare' : 'github',
     apiBase: env.API_BASE ?? '',
+    contactPhone: env.CONTACT_PHONE ?? '',
+    platformName: env.PLATFORM_NAME || 'Web Làng',
+    allowTestSeed: env.ALLOW_TEST_SEED === '1',
   };
 }
 

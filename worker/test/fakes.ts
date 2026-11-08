@@ -10,6 +10,7 @@ export const testConfig: Config = {
   dailyCapUsd: 10,
   packages: [{ id: 'co-ban', name: 'Cơ bản', priceVnd: 10_000_000, items: ['Website'] }],
   allowTestPrice: false, publisher: 'github', apiBase: 'https://api.test',
+  contactPhone: '0912 345 678', platformName: 'Web Làng', allowTestSeed: false,
 };
 
 const nope = (name: string) => () => { throw new Error(`fake ${name} not configured`); };

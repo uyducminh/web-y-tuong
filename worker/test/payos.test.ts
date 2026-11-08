@@ -141,8 +141,8 @@ describe('configFromEnv PACKAGES', () => {
 });
 
 // ---------------------------------------------------------------- routes
-const META: SiteMeta = { siteId: 'demo-rau-ab12', repo: 'demo-rau-ab12', phone: '0912345678', leadKey: 'k'.repeat(32),
-  expires: '2026-12-08', paid: false, revisions: 0, createdAt: '2026-11-08', name: 'HTX Rau Sạch' };
+const META: SiteMeta = { siteId: 'rau-ab12cd', phone: '0912345678', leadKey: 'k'.repeat(32), handoffKey: 'h'.repeat(32),
+  template: 'tpl-ban-hang', expires: '2026-12-08', revisions: 0, createdAt: '2026-11-08', name: 'HTX Rau Sạch', analysisReady: true };
 
 function routeDeps(over: Partial<Deps> = {}) {
   const pf = fakeFetch();
@@ -212,10 +212,27 @@ describe('POST /api/checkout', () => {
 
   it('already paid site → 409', async () => {
     const { deps, payosCalls } = routeDeps();
-    const meta = await mkSite(deps, { paid: true });
+    const meta = await mkSite(deps);
+    await putJson(deps.kv, `paid:${meta.siteId}`, { orderCode: 1 }); // paid: is the only source of truth
     const res = await handle(checkout({ siteId: meta.siteId, packageId: 'co-ban' }), deps, ctx);
     expect(res.status).toBe(409);
     expect(payosCalls).toHaveLength(0);
+  });
+
+  it('expired unpaid or removed demo → 410 "Bản dùng thử đã hết hạn.", no order, no PayOS call; expired but paid → 409', async () => {
+    const { deps, payosCalls } = routeDeps();
+    const past = new Date(deps.now().getTime() - 1000).toISOString();
+    for (const patch of [{ expires: past }, { removed: true }] as Partial<SiteMeta>[]) {
+      const meta = await mkSite(deps, patch);
+      const res = await handle(checkout({ siteId: meta.siteId, packageId: 'co-ban' }), deps, ctx);
+      expect(res.status).toBe(410);
+      expect(((await res.json()) as any).error).toBe('Bản dùng thử đã hết hạn.');
+    }
+    expect(payosCalls).toHaveLength(0);
+    expect((await deps.kv.list({ prefix: 'order:' })).keys).toHaveLength(0);
+    const paid = await mkSite(deps, { expires: past });
+    await putJson(deps.kv, `paid:${paid.siteId}`, { orderCode: 1 });
+    expect((await handle(checkout({ siteId: paid.siteId, packageId: 'co-ban' }), deps, ctx)).status).toBe(409);
   });
 
   it('unknown site → 404; bad body → 400', async () => {
@@ -273,7 +290,7 @@ describe('POST /webhook/payos', () => {
     await putJson(deps.kv, `order:${orderCode}`, { siteId: meta.siteId, packageId: 'co-ban', amount, createdAt: '2026-11-08T05:00:00.000Z' });
     return { meta, orderCode };
   }
-  const paidOf = async (deps: Deps, id: string) => (await getJson<SiteMeta>(deps.kv, `site:${id}`))!.paid;
+  const paidOf = async (deps: Deps, id: string) => (await deps.kv.get(`paid:${id}`)) !== null;
 
   it('valid signature + code 00 → paid, sheet updated, team notified (Vietnamese, formatted amount)', async () => {
     const { deps, sheetCalls, notes } = routeDeps();
@@ -282,9 +299,45 @@ describe('POST /webhook/payos', () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true });
     expect(await paidOf(deps, meta.siteId)).toBe(true);
-    expect(sheetCalls).toEqual([[meta.siteId, { trang_thai: 'da_thanh_toan', goi: 'Cơ bản', so_tien: '10000000' }]]);
+    expect(sheetCalls).toEqual([[meta.siteId, { trang_thai: 'da_thanh_toan', goi: 'Cơ bản', so_tien: '10000000',
+      link_ban_giao: `https://api.test/handoff/${meta.siteId}?key=${meta.handoffKey}` }]]);
     expect(notes).toHaveLength(1);
-    for (const s of ['HTX Rau Sạch', '0912345678', 'Cơ bản', '10.000.000đ', `https://demo-org.github.io/${meta.repo}/`]) expect(notes[0]).toContain(s);
+    for (const s of ['HTX Rau Sạch', '0912345678', 'Cơ bản', '10.000.000đ', `https://api.test/d/${meta.siteId}/`,
+      `https://api.test/handoff/${meta.siteId}?key=${meta.handoffKey}`]) expect(notes[0]).toContain(s);
+  });
+
+  it('rewrites every asset:<id>:* without TTL (and brief:/docs:), leaves other sites alone', async () => {
+    const { deps } = routeDeps();
+    const { meta, orderCode } = await mkOrder(deps);
+    const other = `${meta.siteId}0`;
+    for (const k of [`asset:${meta.siteId}:assets/1-a.jpg`, `asset:${meta.siteId}:assets/2-b.jpg`, `brief:${meta.siteId}`, `docs:${meta.siteId}`, `asset:${other}:assets/1-a.jpg`])
+      await deps.kv.put(k, JSON.stringify({ mime: 'image/jpeg', base64: 'QQ==' }), { expirationTtl: 3600 });
+    await handle(webhook(signedWebhook(orderCode, 10_000_000)), deps, ctx);
+    for (const k of [`asset:${meta.siteId}:assets/1-a.jpg`, `asset:${meta.siteId}:assets/2-b.jpg`, `brief:${meta.siteId}`, `docs:${meta.siteId}`]) {
+      const e = (await deps.kv.list({ prefix: k })).keys.find((x) => x.name === k)!;
+      expect(e.expiration, k).toBeUndefined();
+      expect(await deps.kv.get(k)).toContain('QQ==');
+    }
+    const o = (await deps.kv.list({ prefix: `asset:${other}:` })).keys[0];
+    expect(o.expiration).toBeDefined();
+  });
+
+  it('does not rewrite site: when the site is already paid (no race with revise)', async () => {
+    const { deps } = routeDeps();
+    const { meta, orderCode } = await mkOrder(deps);
+    await putJson(deps.kv, `paid:${meta.siteId}`, { orderCode: 1 });
+    await putJson(deps.kv, `site:${meta.siteId}`, { ...meta, revisions: 5 });
+    const puts: string[] = [];
+    const kv = deps.kv;
+    deps.kv = new Proxy(kv, { get(t, k) {
+      const v = (t as any)[k];
+      if (k === 'put') return (key: string, ...a: any[]) => { puts.push(key); return v.call(t, key, ...a); };
+      return typeof v === 'function' ? v.bind(t) : v;
+    } });
+    const res = await handle(webhook(signedWebhook(orderCode, 10_000_000)), deps, ctx);
+    expect(res.status).toBe(200);
+    expect(puts).not.toContain(`site:${meta.siteId}`);
+    expect((await getJson<SiteMeta>(kv, `site:${meta.siteId}`))!.revisions).toBe(5);
   });
 
   it('invalid signature → 200 {ok:true}, nothing changes', async () => {
