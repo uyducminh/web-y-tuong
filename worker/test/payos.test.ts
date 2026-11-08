@@ -219,6 +219,22 @@ describe('POST /api/checkout', () => {
     expect(payosCalls).toHaveLength(0);
   });
 
+  it('expired unpaid or removed demo → 410 "Bản dùng thử đã hết hạn.", no order, no PayOS call; expired but paid → 409', async () => {
+    const { deps, payosCalls } = routeDeps();
+    const past = new Date(deps.now().getTime() - 1000).toISOString();
+    for (const patch of [{ expires: past }, { removed: true }] as Partial<SiteMeta>[]) {
+      const meta = await mkSite(deps, patch);
+      const res = await handle(checkout({ siteId: meta.siteId, packageId: 'co-ban' }), deps, ctx);
+      expect(res.status).toBe(410);
+      expect(((await res.json()) as any).error).toBe('Bản dùng thử đã hết hạn.');
+    }
+    expect(payosCalls).toHaveLength(0);
+    expect((await deps.kv.list({ prefix: 'order:' })).keys).toHaveLength(0);
+    const paid = await mkSite(deps, { expires: past });
+    await putJson(deps.kv, `paid:${paid.siteId}`, { orderCode: 1 });
+    expect((await handle(checkout({ siteId: paid.siteId, packageId: 'co-ban' }), deps, ctx)).status).toBe(409);
+  });
+
   it('unknown site → 404; bad body → 400', async () => {
     const { deps } = routeDeps();
     expect((await handle(checkout({ siteId: 'nope', packageId: 'co-ban' }), deps, ctx)).status).toBe(404);

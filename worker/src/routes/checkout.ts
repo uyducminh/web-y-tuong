@@ -2,7 +2,7 @@ import type { Config, Deps, SiteMeta } from '../types';
 import { errorJson, json, readJson } from '../http';
 import { getJson, putJson } from '../kv';
 import { payosDescription } from '../clients/payos';
-import { isPaid } from '../sites';
+import { isPaid, TRIAL_GONE, trialGone } from '../sites';
 
 export const MIN_PACKAGE_VND = 10_000_000;
 export const ORDER_TTL = 400 * 24 * 3600;
@@ -39,6 +39,8 @@ export async function postCheckout(req: Request, deps: Deps): Promise<Response> 
   const meta = await getJson<SiteMeta>(deps.kv, `site:${body.siteId}`);
   if (!meta) return errorJson(404, 'Không tìm thấy bản dùng thử này.');
   if (await isPaid(deps, meta.siteId)) return errorJson(409, 'Bản dùng thử này đã được thanh toán. Đội ngũ sẽ liên hệ với bạn trong 24h.');
+  // Expired-unpaid or removed by the cron: nothing left to buy (the package page answers 410 too).
+  if (await trialGone(deps, meta)) return errorJson(410, TRIAL_GONE);
 
   // Prices come ONLY from config.packages — never from the request or the AI proposal.
   const pkg = deps.config.packages.find((p) => p.id === body.packageId);
