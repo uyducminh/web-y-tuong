@@ -24,9 +24,16 @@ export interface Publisher {
   remove(repo: string): Promise<void>;
 }
 
-export type SiteMeta = { siteId: string; repo: string; phone: string; leadKey: string; url?: string;
-  expires: string; paid: boolean; revisions: number; createdAt: string; name: string;
-  /** Set by the cron once an expired unpaid demo's repo has been deleted. */ removed?: boolean };
+/**
+ * `site:<siteId>`. The demo is served by the Worker from KV (`sitejson:`, `analysis:`, `asset:<id>:<path>`), no GitHub repo.
+ * `paid` is legacy/compat only (the webhook still mirrors it): `paid:<siteId>` (sites.ts isPaid) is the only source of truth.
+ */
+export type SiteMeta = { siteId: string; phone: string; leadKey: string;
+  /** Handoff link key (deps.rand(32)), created with the site record. */ handoffKey: string;
+  template: TemplateId; expires: string; revisions: number; createdAt: string; name: string;
+  /** true once the AI stage stored `analysis:<siteId>`. */ analysisReady: boolean;
+  /** @deprecated compat only — never read for gating; use isPaid. */ paid?: boolean;
+  /** Set by the cron once an expired unpaid demo has been taken down. */ removed?: boolean };
 
 export type Job = { id: string; siteId: string; state: 'pending' | 'ready' | 'failed' | 'queued'; url?: string; error?: string };
 

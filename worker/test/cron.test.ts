@@ -28,8 +28,8 @@ function mk(over: Partial<Deps> = {}) {
 }
 
 async function seedSite(deps: Deps, id: string, o: Partial<SiteMeta> = {}) {
-  const m: SiteMeta = { siteId: id, repo: id, phone: '09' + id.length, leadKey: 'k', expires: '2026-11-01T00:00:00.000Z',
-    paid: false, revisions: 0, createdAt: '2026-10-01T00:00:00.000Z', name: 'n', ...o };
+  const m: SiteMeta = { siteId: id, phone: '09' + id.length, leadKey: 'k', handoffKey: 'h', template: 'tpl-thu-lead',
+    expires: '2026-11-01T00:00:00.000Z', revisions: 0, createdAt: '2026-10-01T00:00:00.000Z', name: 'n', analysisReady: true, ...o };
   await putJson(deps.kv, `site:${id}`, m);
   await putJson(deps.kv, expKey(m.expires, id), 1); // written at generate
   return m;
@@ -50,24 +50,31 @@ async function seedJob(deps: Deps, id: string, o: Partial<JobRecord> = {}, queue
 }
 
 describe('runDaily expiry', () => {
-  it('removes expired unpaid demos, updates sheet, flags meta; skips paid, unexpired and already removed', async () => {
+  it('flags expired unpaid demos removed, updates sheet; skips paid, unexpired and already removed; never calls GitHub', async () => {
     const { deps, sheet, publisher } = mk();
     await seedSite(deps, 'old1');
-    await seedSite(deps, 'paid1', { paid: true });
+    await seedSite(deps, 'paid1');
+    await putJson(deps.kv, 'paid:paid1', { orderCode: 1 });
     await seedSite(deps, 'fresh1', { expires: '2026-12-01T00:00:00.000Z' });
     await seedSite(deps, 'gone1', { removed: true });
     const r = await runDaily(deps);
     expect(r).toEqual({ removed: 1, processed: 0 });
-    expect(publisher.remove.mock.calls).toEqual([['old1']]);
+    expect(publisher.remove).not.toHaveBeenCalled();
+    expect(sheet.update).toHaveBeenCalledTimes(1);
     expect(sheet.update).toHaveBeenCalledWith('old1', { trang_thai: 'da_go' });
     expect((await getJson<SiteMeta>(deps.kv, 'site:old1'))!.removed).toBe(true);
     expect((await getJson<SiteMeta>(deps.kv, 'site:paid1'))!.removed).toBeUndefined();
   });
 
   it('a failure on one site does not stop the others (and is retried next day)', async () => {
-    const { deps, publisher } = mk();
+    const { deps } = mk();
     await seedSite(deps, 'a1'); await seedSite(deps, 'b1'); await seedSite(deps, 'c1');
-    publisher.remove.mockImplementation(async (repo: string) => { if (repo === 'b1') throw new Error('boom'); });
+    const kv = deps.kv;
+    deps.kv = new Proxy(kv, { get(t, k) {
+      const v = (t as any)[k];
+      if (k === 'put') return (key: string, ...a: any[]) => { if (key === 'site:b1') throw new Error('boom'); return v.call(t, key, ...a); };
+      return typeof v === 'function' ? v.bind(t) : v;
+    } });
     const r = await runDaily(deps);
     expect(r.removed).toBe(2);
     expect((await getJson<SiteMeta>(deps.kv, 'site:b1'))!.removed).toBeUndefined();
@@ -83,10 +90,10 @@ describe('runDaily expiry', () => {
   }, 60_000);
 
   it('reads only due days of the expiry index, never every site:', async () => {
-    const { deps, publisher } = mk();
+    const { deps } = mk();
     await seedSite(deps, 'old1');
     await seedSite(deps, 'later1', { expires: '2026-12-01T00:00:00.000Z' });
-    await putJson(deps.kv, 'site:noindex', { siteId: 'noindex', repo: 'noindex', expires: '2026-10-01T00:00:00.000Z', paid: false } as any);
+    await putJson(deps.kv, 'site:noindex', { siteId: 'noindex', expires: '2026-10-01T00:00:00.000Z' } as any);
     const kv = deps.kv;
     const reads: string[] = [];
     deps.kv = new Proxy(kv, { get(t, k) {
@@ -95,7 +102,7 @@ describe('runDaily expiry', () => {
       return typeof v === 'function' ? v.bind(t) : v;
     } });
     await runDaily(deps);
-    expect(publisher.remove.mock.calls).toEqual([['old1']]);
+    expect((await getJson<SiteMeta>(kv, 'site:old1'))!.removed).toBe(true);
     expect(reads).not.toContain('site:later1');
     expect(reads).not.toContain('site:noindex');
     expect(await kv.get(expKey('2026-12-01T00:00:00.000Z', 'later1'))).not.toBeNull();
@@ -103,23 +110,22 @@ describe('runDaily expiry', () => {
   });
 
   it('never removes a demo whose paid: key exists, even if site: was rewritten with paid:false', async () => {
-    const { deps, publisher } = mk();
+    const { deps } = mk();
     await seedSite(deps, 'raced1'); // e.g. a revise/cron rewrite of site: lost meta.paid
     await putJson(deps.kv, 'paid:raced1', { orderCode: 1 });
     expect((await runDaily(deps)).removed).toBe(0);
-    expect(publisher.remove).not.toHaveBeenCalled();
     expect((await getJson<SiteMeta>(deps.kv, 'site:raced1'))!.removed).toBeUndefined();
   });
 
   it('runs the queue before expiry', async () => {
-    const { deps, publisher } = mk();
+    const { deps, sheet } = mk();
     const order: string[] = [];
-    publisher.create.mockImplementation(async (o: any) => { order.push('create'); return { repo: o.repoName }; });
-    publisher.remove.mockImplementation(async () => { order.push('remove'); });
+    sheet.append.mockImplementation(async () => { order.push('demo'); });
+    sheet.update.mockImplementation(async () => { order.push('remove'); });
     await seedSite(deps, 'old1');
     await seedJob(deps, 'q1', {}, true);
     await runDaily(deps);
-    expect(order).toEqual(['create', 'remove']);
+    expect(order).toEqual(['demo', 'remove']);
   });
 });
 
@@ -140,7 +146,7 @@ describe('runDaily queue', () => {
     expect(r.processed).toBe(2);
     for (const id of ['q1', 'q2']) {
       const j = await loadJob(deps, id);
-      expect(j!.stage).toBe('published');
+      expect(j).toMatchObject({ state: 'ready', stage: 'ready' });
       expect(await deps.kv.get(queueKey(id))).toBeNull();
     }
     expect((await loadJob(deps, 'q3'))!.state).toBe('queued');
@@ -164,7 +170,7 @@ describe('runDaily queue', () => {
     expect(r.processed).toBe(2);
     expect((await loadJob(deps, 'q1'))!.state).toBe('failed');
     expect(await deps.kv.get(queueKey('q1'))).toBeNull();
-    expect((await loadJob(deps, 'q2'))!.stage).toBe('published');
+    expect((await loadJob(deps, 'q2'))!.stage).toBe('ready');
     expect(notify.send).toHaveBeenCalled();
   });
 
@@ -177,33 +183,32 @@ describe('runDaily queue', () => {
 });
 
 describe('runDaily abandoned jobs', () => {
-  it('finishes an abandoned unpublished job (customer left the status page) instead of failing it', async () => {
+  it('finishes an abandoned job (customer left the status page) instead of failing it', async () => {
     const { deps, publisher } = mk();
     await seedJob(deps, 'old', { stage: 'ai', startedAt: '2026-11-08T04:00:00.000Z', stageAt: '2026-11-08T04:00:00.000Z' });
     await runDaily(deps);
     const j = (await loadJob(deps, 'old'))!;
-    expect(j).toMatchObject({ state: 'pending', stage: 'published' });
-    expect(publisher.create).toHaveBeenCalledTimes(1);
+    expect(j).toMatchObject({ state: 'ready', stage: 'ready', url: 'https://api.test/package/demo-old' });
+    expect(publisher.create).not.toHaveBeenCalled();
     expect(await deps.kv.get(jobIdxKey('old'))).toBeNull();
     expect(await deps.kv.get('phone:0912old')).not.toBeNull();
   });
 
-  it('gives up (releasing the phone) an old job that still cannot be published', async () => {
-    const { deps, publisher } = mk();
-    publisher.create.mockImplementation(async () => { throw new Error('gh down'); });
+  it('fails (releasing the phone) an old job that still cannot be finished', async () => {
+    const { deps } = mk();
     await seedJob(deps, 'old', { stage: 'ai', startedAt: '2026-11-08T04:00:00.000Z', stageAt: '2026-11-08T04:00:00.000Z' });
+    await deps.kv.delete('site:demo-old'); // inputs gone: the stage cannot complete
     await runDaily(deps);
     expect((await loadJob(deps, 'old'))!.state).toBe('failed');
     expect(await deps.kv.get('phone:0912old')).toBeNull();
     expect(await deps.kv.get(jobIdxKey('old'))).toBeNull();
   });
 
-  it('resumes a recent stalled unpublished job', async () => {
+  it('resumes a recent stalled job', async () => {
     const { deps } = mk();
-    await seedJob(deps, 'rec', { stage: 'ai_done', startedAt: '2026-11-08T04:56:00.000Z', stageAt: '2026-11-08T04:56:00.000Z' });
-    await putJson(deps.kv, 'sitejson:demo-rec', defaultSite('tpl-thu-lead', BriefV2Schema.parse({ ten_don_vi: 'X' }), 'demo-rec'));
+    await seedJob(deps, 'rec', { stage: 'ai', startedAt: '2026-11-08T04:56:00.000Z', stageAt: '2026-11-08T04:56:00.000Z' });
     await runDaily(deps);
-    expect((await loadJob(deps, 'rec'))!.stage).toBe('published');
+    expect((await loadJob(deps, 'rec'))!.stage).toBe('ready');
   });
 
   it('skips a job with a live lease (a status-page runner is on it)', async () => {
@@ -215,13 +220,13 @@ describe('runDaily abandoned jobs', () => {
     expect((await loadJob(deps, 'busy'))!).toMatchObject({ state: 'pending', runner: 'run-x' });
   });
 
-  it('leaves published and failed jobs alone and drops their index entries', async () => {
-    const { deps, publisher } = mk();
-    await seedJob(deps, 'pub', { stage: 'published', publishedAt: NOW });
+  it('leaves ready and failed jobs alone and drops their index entries', async () => {
+    const { deps, claude } = mk();
+    await seedJob(deps, 'pub', { state: 'ready', stage: 'ready' });
     await seedJob(deps, 'bad', { state: 'failed' });
     await runDaily(deps);
-    expect(publisher.create).not.toHaveBeenCalled();
-    expect((await loadJob(deps, 'pub'))!.state).toBe('pending');
+    expect(claude.callTool).not.toHaveBeenCalled();
+    expect((await loadJob(deps, 'pub'))!.state).toBe('ready');
     expect(await deps.kv.get(jobIdxKey('pub'))).toBeNull();
     expect(await deps.kv.get(jobIdxKey('bad'))).toBeNull();
   });

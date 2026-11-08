@@ -38,25 +38,29 @@ async function processQueue(deps: Deps): Promise<number> {
 
 /**
  * Finishes pending generate jobs whose customer left the status page (nobody calls /run any more): runs the remaining
- * stages, and only gives a job up (phone released) if it still cannot be published. Jobs with a live lease are skipped.
+ * stages, and only gives a job up (phone released) if it still is not ready. Jobs with a live lease are skipped.
  */
 async function redriveAbandoned(deps: Deps): Promise<void> {
   for await (const key of keysUnder(deps.kv, 'jobidx:')) {
     const jobId = key.slice('jobidx:'.length);
     try {
       const job = await loadJob(deps, jobId);
-      if (!job || job.kind !== 'generate' || job.state === 'failed' || job.state === 'ready' || job.stage === 'published') {
+      if (!job || job.kind !== 'generate' || job.state === 'failed' || job.state === 'ready') {
         await deps.kv.delete(jobIdxKey(jobId)); continue;
       }
       if (job.state !== 'pending' || leaseLive(deps, job)) continue; // queued → processQueue; leased → someone is on it
       await runGenerateJob(deps, jobId, { giveUp: false });
       const after = await loadJob(deps, jobId);
-      if (after && after.stage !== 'published') await giveUpIfStale(deps, after);
+      if (after && after.state === 'pending') await giveUpIfStale(deps, after);
     } catch (e) { console.error(`cron: redrive ${jobId} failed`, e); }
   }
 }
 
-/** Deletes expired unpaid demos (paid ones are never touched). Per-site errors are logged and retried on the next run. */
+/**
+ * Takes down expired unpaid demos (paid ones are never touched) by flagging `removed` (the /d/ page then answers 410).
+ * Interim: no GitHub repo exists any more, so nothing is deleted remotely; KV cleanup comes with the cron rewrite.
+ * Per-site errors are logged and retried on the next run.
+ */
 async function removeExpired(deps: Deps): Promise<number> {
   const now = deps.now().getTime();
   const today = dayStamp(deps.now());
@@ -67,11 +71,10 @@ async function removeExpired(deps: Deps): Promise<number> {
     if (day > today) break; // sorted by day: nothing further is due
     try {
       const meta = await getJson<SiteMeta>(deps.kv, `site:${siteId}`);
-      if (!meta || meta.removed || meta.paid) { await deps.kv.delete(key); continue; }
+      if (!meta || meta.removed) { await deps.kv.delete(key); continue; }
       if (!(Date.parse(meta.expires) < now)) continue; // due later today: next run
       // `paid:` is written by the webhook and never rewritten; check it right before the irreversible delete.
       if (await isPaid(deps, siteId)) { await deps.kv.delete(key); continue; }
-      await deps.publisher.remove(meta.repo); // publisher treats 404 (already gone) as success
       await putJson(deps.kv, `site:${siteId}`, { ...meta, removed: true });
       await deps.kv.delete(key);
       await quietly(() => deps.sheet.update(meta.siteId, { trang_thai: 'da_go' }));

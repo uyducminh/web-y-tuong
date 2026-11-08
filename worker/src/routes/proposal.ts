@@ -2,9 +2,8 @@ import type { Proposal, SiteJson } from '@sme/schema';
 import type { Deps, SiteMeta } from '../types';
 import { errorJson, json } from '../http';
 import { getJson } from '../kv';
-import { pagesUrl } from '../jobs';
 import { MIN_PACKAGE_VND } from './checkout';
-import { isPaid } from '../sites';
+import { demoUrl, isPaid } from '../sites';
 
 export async function getProposal(deps: Deps, siteId: string): Promise<Response> {
   const [meta, proposal, site, paid] = await Promise.all([
@@ -21,7 +20,7 @@ export async function getProposal(deps: Deps, siteId: string): Promise<Response>
     .filter((p) => allowTestPrice || p.priceVnd >= MIN_PACKAGE_VND)
     .map(({ id, name, priceVnd, items }) => ({ id, name, priceVnd, items }));
   return json({
-    proposal, site: { name: site?.brand.name ?? meta.name, url: meta.url ?? pagesUrl(deps.config, meta.repo) },
-    packages: sellable, paid: paid || meta.paid,
+    proposal, site: { name: site?.brand.name ?? meta.name, url: demoUrl(deps.config, siteId) },
+    packages: sellable, paid,
   });
 }

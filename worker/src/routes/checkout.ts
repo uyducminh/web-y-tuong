@@ -30,7 +30,7 @@ export async function postCheckout(req: Request, deps: Deps): Promise<Response> 
   }
   const meta = await getJson<SiteMeta>(deps.kv, `site:${body.siteId}`);
   if (!meta) return errorJson(404, 'Không tìm thấy bản dùng thử này.');
-  if (meta.paid || await isPaid(deps, meta.siteId)) return errorJson(409, 'Bản dùng thử này đã được thanh toán. Đội ngũ sẽ liên hệ với bạn trong 24h.');
+  if (await isPaid(deps, meta.siteId)) return errorJson(409, 'Bản dùng thử này đã được thanh toán. Đội ngũ sẽ liên hệ với bạn trong 24h.');
 
   // Prices come ONLY from config.packages — never from the request or the AI proposal.
   const pkg = deps.config.packages.find((p) => p.id === body.packageId);

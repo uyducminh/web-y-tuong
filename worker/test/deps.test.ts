@@ -25,3 +25,12 @@ describe('deps', () => {
     await expect(publisherFromEnv(cf, configFromEnv(cf)).status('x')).rejects.toThrow('not implemented');
   });
 });
+
+describe('makeDeps without GitHub', () => {
+  it('does not throw when every GH_* variable is unset (publisher is optional)', async () => {
+    const { makeDeps } = await import('../src/deps');
+    const d = makeDeps({ KV: {} as any } as any);
+    expect(d.publisher).toBeTruthy();
+    expect(d.config.ghOrg).toBe('');
+  });
+});

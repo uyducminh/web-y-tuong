@@ -4,7 +4,8 @@ import { errorJson, json, readJson } from '../http';
 import { getJson, putJson } from '../kv';
 import { RevisionFailedError, reviseContent } from '../ai/generate';
 import { overDailyCap } from '../ai/cost';
-import { type JobRecord, saveJob, utf8ToBase64 } from '../jobs';
+import { type JobRecord, publicJob, saveJob } from '../jobs';
+import { TRIAL_GONE, packageUrl, trialGone } from '../sites';
 
 export const MAX_REVISIONS = 3;
 const MAX_REQUEST_CHARS = 2000;
@@ -22,6 +23,7 @@ export async function postRevise(req: Request, deps: Deps): Promise<Response> {
   if (!meta) return errorJson(404, 'Không tìm thấy bản dùng thử này.');
   const s = await getJson<Session>(deps.kv, `sess:${body.sessionId}`);
   if (!s || s.siteId !== meta.siteId) return errorJson(403, 'Bạn không có quyền sửa bản dùng thử này.');
+  if (await trialGone(deps, meta)) return errorJson(410, TRIAL_GONE);
   if (meta.revisions >= MAX_REVISIONS) return errorJson(409, `Bạn đã dùng hết ${MAX_REVISIONS} lượt sửa bản dùng thử.`);
   const current = await getJson<SiteJson>(deps.kv, `sitejson:${meta.siteId}`);
   if (!current) return errorJson(409, 'Bản dùng thử đang được tạo. Vui lòng thử lại sau ít phút.');
@@ -38,21 +40,16 @@ export async function postRevise(req: Request, deps: Deps): Promise<Response> {
     return errorJson(503, TRY_LATER);
   }
 
+  // Applied immediately: the demo is served from sitejson: (no build). The analysis is not changed.
   const n = meta.revisions + 1;
-  try {
-    await deps.publisher.update(meta.repo, [{ path: 'site.json', base64: utf8ToBase64(JSON.stringify(site, null, 2)) }], `Sửa bản dùng thử lần ${n}`);
-  } catch (e) {
-    console.error(e);
-    return errorJson(503, TRY_LATER);
-  }
   await putJson(deps.kv, `sitejson:${meta.siteId}`, site);
   await putJson(deps.kv, `site:${meta.siteId}`, { ...meta, revisions: n });
 
   const now = deps.now().toISOString();
   const job: JobRecord = {
-    id: deps.rand(20), siteId: meta.siteId, state: 'pending', kind: 'revise',
-    sessionId: s.id, phone: meta.phone, name: meta.name, createdAt: now, stage: 'published', stageAt: now, startedAt: now, publishedAt: now,
+    id: deps.rand(20), siteId: meta.siteId, state: 'ready', kind: 'revise', url: packageUrl(deps.config, meta.siteId),
+    sessionId: s.id, phone: meta.phone, name: meta.name, createdAt: now, stage: 'ready', stageAt: now, startedAt: now,
   };
   await saveJob(deps, job);
-  return json({ jobId: job.id, revisionsLeft: MAX_REVISIONS - n });
+  return json({ jobId: job.id, ...publicJob(job), revisionsLeft: MAX_REVISIONS - n });
 }

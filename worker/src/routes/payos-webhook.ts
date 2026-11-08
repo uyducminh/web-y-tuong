@@ -2,8 +2,8 @@ import { formatVnd } from '@sme/schema';
 import type { Deps, SiteMeta } from '../types';
 import { json, readJson } from '../http';
 import { getJson, putJson } from '../kv';
-import { pagesUrl, quietly } from '../jobs';
-import { bumpStat, expKey, paidKey } from '../sites';
+import { quietly } from '../jobs';
+import { bumpStat, demoUrl, expKey, paidKey } from '../sites';
 import { type Order, orderKey, ORDER_TTL } from './checkout';
 
 export const paidOrderKey = (code: number) => `paidorder:${code}`;
@@ -57,12 +57,12 @@ async function processPaid(deps: Deps, code: unknown, data: Record<string, unkno
   // Source of truth for "paid" (no TTL, never rewritten): cron and checkout read it.
   await putJson(deps.kv, paidKey(order.siteId), paid);
   const meta = await getJson<SiteMeta>(deps.kv, `site:${order.siteId}`);
-  if (meta && !meta.paid) await putJson(deps.kv, `site:${meta.siteId}`, { ...meta, paid: true });
+  if (meta) await putJson(deps.kv, `site:${meta.siteId}`, { ...meta, paid: true });
   if (meta) await quietly(() => deps.kv.delete(expKey(meta.expires, meta.siteId)));
 
   const pkgName = deps.config.packages.find((p) => p.id === order.packageId)?.name ?? order.packageId;
   await quietly(() => deps.sheet.update(order.siteId, { trang_thai: 'da_thanh_toan', goi: pkgName, so_tien: String(order.amount) }));
-  const demo = meta ? (meta.url ?? pagesUrl(deps.config, meta.repo)) : '(không tìm thấy thông tin demo)';
+  const demo = meta ? demoUrl(deps.config, meta.siteId) : '(không tìm thấy thông tin demo)';
   await quietly(() => deps.notify.send(
     `ĐÃ THANH TOÁN: ${meta?.name ?? order.siteId} – ${meta?.phone ?? '(không rõ SĐT)'}\n`
     + `Gói: ${pkgName}\nSố tiền: ${formatVnd(order.amount)}\nMã đơn: ${orderCode}\nDemo: ${demo}\n`

@@ -141,8 +141,8 @@ describe('configFromEnv PACKAGES', () => {
 });
 
 // ---------------------------------------------------------------- routes
-const META: SiteMeta = { siteId: 'demo-rau-ab12', repo: 'demo-rau-ab12', phone: '0912345678', leadKey: 'k'.repeat(32),
-  expires: '2026-12-08', paid: false, revisions: 0, createdAt: '2026-11-08', name: 'HTX Rau Sạch' };
+const META: SiteMeta = { siteId: 'rau-ab12cd', phone: '0912345678', leadKey: 'k'.repeat(32), handoffKey: 'h'.repeat(32),
+  template: 'tpl-ban-hang', expires: '2026-12-08', revisions: 0, createdAt: '2026-11-08', name: 'HTX Rau Sạch', analysisReady: true };
 
 function routeDeps(over: Partial<Deps> = {}) {
   const pf = fakeFetch();
@@ -212,7 +212,8 @@ describe('POST /api/checkout', () => {
 
   it('already paid site → 409', async () => {
     const { deps, payosCalls } = routeDeps();
-    const meta = await mkSite(deps, { paid: true });
+    const meta = await mkSite(deps);
+    await putJson(deps.kv, `paid:${meta.siteId}`, { orderCode: 1 }); // paid: is the only source of truth
     const res = await handle(checkout({ siteId: meta.siteId, packageId: 'co-ban' }), deps, ctx);
     expect(res.status).toBe(409);
     expect(payosCalls).toHaveLength(0);
@@ -273,7 +274,7 @@ describe('POST /webhook/payos', () => {
     await putJson(deps.kv, `order:${orderCode}`, { siteId: meta.siteId, packageId: 'co-ban', amount, createdAt: '2026-11-08T05:00:00.000Z' });
     return { meta, orderCode };
   }
-  const paidOf = async (deps: Deps, id: string) => (await getJson<SiteMeta>(deps.kv, `site:${id}`))!.paid;
+  const paidOf = async (deps: Deps, id: string) => (await deps.kv.get(`paid:${id}`)) !== null;
 
   it('valid signature + code 00 → paid, sheet updated, team notified (Vietnamese, formatted amount)', async () => {
     const { deps, sheetCalls, notes } = routeDeps();
@@ -284,7 +285,7 @@ describe('POST /webhook/payos', () => {
     expect(await paidOf(deps, meta.siteId)).toBe(true);
     expect(sheetCalls).toEqual([[meta.siteId, { trang_thai: 'da_thanh_toan', goi: 'Cơ bản', so_tien: '10000000' }]]);
     expect(notes).toHaveLength(1);
-    for (const s of ['HTX Rau Sạch', '0912345678', 'Cơ bản', '10.000.000đ', `https://demo-org.github.io/${meta.repo}/`]) expect(notes[0]).toContain(s);
+    for (const s of ['HTX Rau Sạch', '0912345678', 'Cơ bản', '10.000.000đ', `https://api.test/d/${meta.siteId}`]) expect(notes[0]).toContain(s);
   });
 
   it('invalid signature → 200 {ok:true}, nothing changes', async () => {
