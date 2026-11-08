@@ -3,7 +3,7 @@ import type { Deps, SiteMeta } from '../types';
 import { json, readJson } from '../http';
 import { getJson, putJson } from '../kv';
 import { quietly } from '../jobs';
-import { bumpStat, demoUrl, expKey, paidKey } from '../sites';
+import { assetPrefix, briefKey, bumpStat, demoUrl, docsKey, expKey, handoffUrl, isPaid, listKeys, paidKey } from '../sites';
 import { type Order, orderKey, ORDER_TTL } from './checkout';
 
 export const paidOrderKey = (code: number) => `paidorder:${code}`;
@@ -54,19 +54,27 @@ async function processPaid(deps: Deps, code: unknown, data: Record<string, unkno
   if (await deps.kv.get(paidOrderKey(orderCode)) !== null) return; // already fully processed
 
   const paid = { siteId: order.siteId, orderCode, packageId: order.packageId, amount: order.amount, reference, paidAt: deps.now().toISOString() };
+  const alreadyPaid = await isPaid(deps, order.siteId);
   // Source of truth for "paid" (no TTL, never rewritten): cron and checkout read it.
   await putJson(deps.kv, paidKey(order.siteId), paid);
   const meta = await getJson<SiteMeta>(deps.kv, `site:${order.siteId}`);
-  if (meta) await putJson(deps.kv, `site:${meta.siteId}`, { ...meta, paid: true });
+  // Legacy mirror only; skipped when already paid so it cannot race revise's `revisions` update.
+  if (meta && !alreadyPaid) await putJson(deps.kv, `site:${meta.siteId}`, { ...meta, paid: true });
+  // Keep the customer's images (and the handoff inputs) forever: rewrite without TTL.
+  for (const k of [...(await listKeys(deps.kv, assetPrefix(order.siteId))), briefKey(order.siteId), docsKey(order.siteId)]) {
+    const v = await deps.kv.get(k);
+    if (v !== null) await deps.kv.put(k, v);
+  }
   if (meta) await quietly(() => deps.kv.delete(expKey(meta.expires, meta.siteId)));
 
   const pkgName = deps.config.packages.find((p) => p.id === order.packageId)?.name ?? order.packageId;
-  await quietly(() => deps.sheet.update(order.siteId, { trang_thai: 'da_thanh_toan', goi: pkgName, so_tien: String(order.amount) }));
+  const handoff = meta?.handoffKey ? handoffUrl(deps.config, meta.siteId, meta.handoffKey) : '';
+  await quietly(() => deps.sheet.update(order.siteId, { trang_thai: 'da_thanh_toan', goi: pkgName, so_tien: String(order.amount), link_ban_giao: handoff }));
   const demo = meta ? demoUrl(deps.config, meta.siteId) : '(không tìm thấy thông tin demo)';
   await quietly(() => deps.notify.send(
     `ĐÃ THANH TOÁN: ${meta?.name ?? order.siteId} – ${meta?.phone ?? '(không rõ SĐT)'}\n`
     + `Gói: ${pkgName}\nSố tiền: ${formatVnd(order.amount)}\nMã đơn: ${orderCode}\nDemo: ${demo}\n`
-    + 'Cần liên hệ khách trong 24h.'));
+    + (handoff ? `Bàn giao: ${handoff}\n` : '') + 'Cần liên hệ khách trong 24h.'));
   await bumpStat(deps, 'paid');
   // Last: marks the notice as handled (a failure before this point → 500 → PayOS retry → notice repeated).
   await putJson(deps.kv, paidOrderKey(orderCode), paid, ORDER_TTL);

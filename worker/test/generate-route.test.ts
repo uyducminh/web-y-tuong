@@ -223,6 +223,20 @@ describe('POST /api/generate', () => {
     expectNoPublisher(publisher);
   });
 
+  it('persists brief:/docs: for the handoff page; assets get no TTL when the site is already paid at write time', async () => {
+    const { deps } = mkDeps();
+    const s = await seedSession(deps, 'sP', { uploads: 1 });
+    await putJson(deps.kv, 'sess:sP', { ...s, docsText: 'Bảng giá' });
+    const { data } = await generate(deps, { sessionId: 'sP', phone: '0912000124', name: 'Lan' }, { drive: false });
+    const siteId = await siteOfJob(deps, data.jobId);
+    await deps.kv.put(`paid:${siteId}`, '1'); // payment arrives during the AI stage
+    expect((await run(deps, data.jobId)).data.state).toBe('ready');
+    expect((await getJson<any>(deps.kv, `brief:${siteId}`)).ten_don_vi).toBe('HTX Mây Tre Đan');
+    expect(await getJson(deps.kv, `docs:${siteId}`)).toBe('Bảng giá');
+    const [k] = (await deps.kv.list({ prefix: `asset:${siteId}:` })).keys;
+    expect(k.expiration).toBeUndefined();
+  });
+
   it('asset TTL never drops below 60 s for a demo expiring very soon', async () => {
     const { deps } = mkDeps();
     await seedSession(deps, 'sT', { uploads: 1 });

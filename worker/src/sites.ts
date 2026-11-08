@@ -23,6 +23,23 @@ export const analysisKey = (siteId: string) => `analysis:${siteId}`;
 
 /** Trailing slash: the page lives at /d/<id>/ (relative site.json/assets resolve there); /d/<id> is only a 301 to it. */
 export const demoUrl = (config: Config, siteId: string) => `${config.apiBase}/d/${siteId}/`;
+export const handoffUrl = (config: Config, siteId: string, key: string) => `${config.apiBase}/handoff/${siteId}?key=${key}`;
+/** Persisted at the ready stage for the handoff page (the session id is not reachable from SiteMeta). No TTL; the cron deletes them for unpaid demos. */
+export const briefKey = (siteId: string) => `brief:${siteId}`;
+export const docsKey = (siteId: string) => `docs:${siteId}`;
+export const assetPrefix = (siteId: string) => `asset:${siteId}:`;
+
+/** Every key under a prefix (follows the KV list cursor). */
+export async function listKeys(kv: KVNamespace, prefix: string): Promise<string[]> {
+  const out: string[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await kv.list({ prefix, cursor });
+    for (const k of page.keys) out.push(k.name);
+    cursor = page.list_complete ? undefined : page.cursor;
+  } while (cursor);
+  return out;
+}
 export const packageUrl = (config: Config, siteId: string) => `${config.apiBase}/package/${siteId}`;
 
 /** Seconds from now until the demo expires (KV minimum TTL is 60 s). */

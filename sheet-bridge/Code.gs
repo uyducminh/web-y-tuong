@@ -7,11 +7,11 @@
  *
  * Request (POST, JSON):
  *   { token, action: 'append', row: { thoi_gian, ten, sdt, ... } }
- *   { token, action: 'update', siteId, patch: { trang_thai, goi, so_tien } }
+ *   { token, action: 'update', siteId, patch: { trang_thai, goi, so_tien, link_ban_giao } }
  * Response: { ok: true } or { ok: false, error }
  */
 var SHEET_NAME = 'leads';
-var HEADERS = ['thoi_gian', 'ten', 'sdt', 'nhu_cau', 'link_demo', 'link_lead', 'trang_thai', 'siteId', 'goi', 'so_tien'];
+var HEADERS = ['thoi_gian', 'ten', 'sdt', 'nhu_cau', 'link_demo', 'link_lead', 'trang_thai', 'siteId', 'goi', 'so_tien', 'link_ban_giao'];
 
 function doPost(e) {
   var body;

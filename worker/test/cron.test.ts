@@ -3,6 +3,7 @@ import { BriefV2Schema, defaultSite, defaultAnalysis } from '@sme/schema';
 import { makeTestDeps } from './fakes';
 import { getJson, putJson } from '../src/kv';
 import { runDaily } from '../src/cron';
+import { handle } from '../src/index';
 import { jobIdxKey, queueKey, saveJob, loadJob, type JobRecord } from '../src/jobs';
 import { expKey } from '../src/sites';
 import type { Deps, Session, SiteMeta } from '../src/types';
@@ -126,6 +127,44 @@ describe('runDaily expiry', () => {
     await seedJob(deps, 'q1', {}, true);
     await runDaily(deps);
     expect(order).toEqual(['demo', 'remove']);
+  });
+});
+
+describe('runDaily KV cleanup', () => {
+  const seedData = async (deps: Deps, id: string) => {
+    for (const k of [`sitejson:${id}`, `analysis:${id}`, `proposal:${id}`, `brief:${id}`, `docs:${id}`, `asset:${id}:assets/1-a.jpg`, `asset:${id}:assets/2-b.jpg`])
+      await putJson(deps.kv, k, { x: 1 });
+  };
+  const keysOf = async (deps: Deps, id: string) => [
+    ...(await deps.kv.list({ prefix: `sitejson:${id}` })).keys, ...(await deps.kv.list({ prefix: `analysis:${id}` })).keys,
+    ...(await deps.kv.list({ prefix: `proposal:${id}` })).keys, ...(await deps.kv.list({ prefix: `asset:${id}:` })).keys,
+    ...(await deps.kv.list({ prefix: `brief:${id}` })).keys, ...(await deps.kv.list({ prefix: `docs:${id}` })).keys].map((k) => k.name);
+
+  it('deletes sitejson/analysis/proposal/assets (+ brief/docs) of an expired unpaid demo; /d/ then answers 410; no publisher call', async () => {
+    const { deps, publisher } = mk();
+    await seedSite(deps, 'old1'); await seedData(deps, 'old1');
+    await runDaily(deps);
+    expect(await keysOf(deps, 'old1')).toEqual([]);
+    expect((await getJson<SiteMeta>(deps.kv, 'site:old1'))!.removed).toBe(true);
+    const res = await handle(new Request('https://api.test/d/old1/'), deps, { waitUntil() {}, passThroughOnException() {} } as any);
+    expect(res.status).toBe(410);
+    expect(publisher.remove).not.toHaveBeenCalled();
+  });
+
+  it('keeps every key of a paid demo', async () => {
+    const { deps } = mk();
+    await seedSite(deps, 'paid1'); await seedData(deps, 'paid1');
+    await putJson(deps.kv, 'paid:paid1', { orderCode: 1 });
+    await runDaily(deps);
+    expect((await keysOf(deps, 'paid1')).length).toBe(7);
+  });
+
+  it('does not touch another site whose id shares a prefix', async () => {
+    const { deps } = mk();
+    await seedSite(deps, 'old1'); await seedData(deps, 'old1');
+    await seedData(deps, 'old10');
+    await runDaily(deps);
+    expect((await keysOf(deps, 'old10')).length).toBe(7);
   });
 });
 

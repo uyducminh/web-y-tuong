@@ -3,7 +3,7 @@ import type { Deps, Job, Session, SiteMeta } from '../types';
 import { getJson, putJson } from '../kv';
 import { fallbackProposal, generatePackage } from '../ai/generate';
 import { overDailyCap } from '../ai/cost';
-import { analysisKey, assetKey, bumpStat, demoUrl, packageUrl, ttlUntil } from '../sites';
+import { analysisKey, assetKey, briefKey, bumpStat, demoUrl, docsKey, isPaid, packageUrl, ttlUntil } from '../sites';
 import {
   type JobRecord, GAVE_UP_MSG, GEN_FAILED, SESSION_TTL_WITH_SITE, UNPUBLISHED_GIVE_UP_MS,
   jobIdxKey, loadJob, publicJob, queueKey, quietly, saveJob,
@@ -123,7 +123,12 @@ async function aiStage(deps: Deps, jobId: string, runner: string): Promise<Stage
   await putJson(deps.kv, `sitejson:${job.siteId}`, site);
   await putJson(deps.kv, `proposal:${job.siteId}`, proposal);
   await putJson(deps.kv, analysisKey(job.siteId), analysis);
-  for (const u of uploads) await putJson(deps.kv, assetKey(job.siteId, u.path), { mime: u.mime, base64: u.base64 }, assetTtl);
+  // Handoff inputs (the session id is not on SiteMeta). Kept without TTL; the cron deletes them for unpaid demos.
+  await putJson(deps.kv, briefKey(job.siteId), s.brief);
+  await putJson(deps.kv, docsKey(job.siteId), s.docsText ?? '');
+  // Payment may land during the AI stage: a paid demo's images must not expire.
+  const paidNow = await isPaid(deps, job.siteId);
+  for (const u of uploads) await putJson(deps.kv, assetKey(job.siteId, u.path), { mime: u.mime, base64: u.base64 }, paidNow ? undefined : assetTtl);
   await putJson(deps.kv, `site:${job.siteId}`, { ...meta, template: site.template, analysisReady: true } satisfies SiteMeta);
 
   job.state = 'ready'; job.stage = 'ready'; job.stageAt = deps.now().toISOString();

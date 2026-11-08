@@ -2,7 +2,7 @@ import type { Deps, SiteMeta } from './types';
 import { dayStamp, getJson, putJson } from './kv';
 import { giveUpIfStale, jobIdxKey, leaseLive, loadJob, queueKey, quietly, runGenerateJob } from './jobs';
 import { overDailyCap } from './ai/cost';
-import { isPaid } from './sites';
+import { assetPrefix, briefKey, docsKey, isPaid, listKeys, analysisKey } from './sites';
 
 /**
  * Daily cron (a scheduled invocation allows ~1000 KV operations). It never lists every `site:` or `job:` key:
@@ -58,7 +58,7 @@ async function redriveAbandoned(deps: Deps): Promise<void> {
 
 /**
  * Takes down expired unpaid demos (paid ones are never touched) by flagging `removed` (the /d/ page then answers 410).
- * Interim: no GitHub repo exists any more, so nothing is deleted remotely; KV cleanup comes with the cron rewrite.
+ * The demo's KV data (sitejson, analysis, proposal, assets, brief, docs) is deleted; no publisher call (there is no repo).
  * Per-site errors are logged and retried on the next run.
  */
 async function removeExpired(deps: Deps): Promise<number> {
@@ -75,6 +75,8 @@ async function removeExpired(deps: Deps): Promise<number> {
       if (!(Date.parse(meta.expires) < now)) continue; // due later today: next run
       // `paid:` is written by the webhook and never rewritten; check it right before the irreversible delete.
       if (await isPaid(deps, siteId)) { await deps.kv.delete(key); continue; }
+      for (const k of [`sitejson:${siteId}`, analysisKey(siteId), `proposal:${siteId}`, briefKey(siteId), docsKey(siteId), ...(await listKeys(deps.kv, assetPrefix(siteId)))])
+        await deps.kv.delete(k);
       await putJson(deps.kv, `site:${siteId}`, { ...meta, removed: true });
       await deps.kv.delete(key);
       await quietly(() => deps.sheet.update(meta.siteId, { trang_thai: 'da_go' }));

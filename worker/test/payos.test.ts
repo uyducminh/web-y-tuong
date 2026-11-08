@@ -283,9 +283,45 @@ describe('POST /webhook/payos', () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true });
     expect(await paidOf(deps, meta.siteId)).toBe(true);
-    expect(sheetCalls).toEqual([[meta.siteId, { trang_thai: 'da_thanh_toan', goi: 'Cơ bản', so_tien: '10000000' }]]);
+    expect(sheetCalls).toEqual([[meta.siteId, { trang_thai: 'da_thanh_toan', goi: 'Cơ bản', so_tien: '10000000',
+      link_ban_giao: `https://api.test/handoff/${meta.siteId}?key=${meta.handoffKey}` }]]);
     expect(notes).toHaveLength(1);
-    for (const s of ['HTX Rau Sạch', '0912345678', 'Cơ bản', '10.000.000đ', `https://api.test/d/${meta.siteId}/`]) expect(notes[0]).toContain(s);
+    for (const s of ['HTX Rau Sạch', '0912345678', 'Cơ bản', '10.000.000đ', `https://api.test/d/${meta.siteId}/`,
+      `https://api.test/handoff/${meta.siteId}?key=${meta.handoffKey}`]) expect(notes[0]).toContain(s);
+  });
+
+  it('rewrites every asset:<id>:* without TTL (and brief:/docs:), leaves other sites alone', async () => {
+    const { deps } = routeDeps();
+    const { meta, orderCode } = await mkOrder(deps);
+    const other = `${meta.siteId}0`;
+    for (const k of [`asset:${meta.siteId}:assets/1-a.jpg`, `asset:${meta.siteId}:assets/2-b.jpg`, `brief:${meta.siteId}`, `docs:${meta.siteId}`, `asset:${other}:assets/1-a.jpg`])
+      await deps.kv.put(k, JSON.stringify({ mime: 'image/jpeg', base64: 'QQ==' }), { expirationTtl: 3600 });
+    await handle(webhook(signedWebhook(orderCode, 10_000_000)), deps, ctx);
+    for (const k of [`asset:${meta.siteId}:assets/1-a.jpg`, `asset:${meta.siteId}:assets/2-b.jpg`, `brief:${meta.siteId}`, `docs:${meta.siteId}`]) {
+      const e = (await deps.kv.list({ prefix: k })).keys.find((x) => x.name === k)!;
+      expect(e.expiration, k).toBeUndefined();
+      expect(await deps.kv.get(k)).toContain('QQ==');
+    }
+    const o = (await deps.kv.list({ prefix: `asset:${other}:` })).keys[0];
+    expect(o.expiration).toBeDefined();
+  });
+
+  it('does not rewrite site: when the site is already paid (no race with revise)', async () => {
+    const { deps } = routeDeps();
+    const { meta, orderCode } = await mkOrder(deps);
+    await putJson(deps.kv, `paid:${meta.siteId}`, { orderCode: 1 });
+    await putJson(deps.kv, `site:${meta.siteId}`, { ...meta, revisions: 5 });
+    const puts: string[] = [];
+    const kv = deps.kv;
+    deps.kv = new Proxy(kv, { get(t, k) {
+      const v = (t as any)[k];
+      if (k === 'put') return (key: string, ...a: any[]) => { puts.push(key); return v.call(t, key, ...a); };
+      return typeof v === 'function' ? v.bind(t) : v;
+    } });
+    const res = await handle(webhook(signedWebhook(orderCode, 10_000_000)), deps, ctx);
+    expect(res.status).toBe(200);
+    expect(puts).not.toContain(`site:${meta.siteId}`);
+    expect((await getJson<SiteMeta>(kv, `site:${meta.siteId}`))!.revisions).toBe(5);
   });
 
   it('invalid signature → 200 {ok:true}, nothing changes', async () => {
