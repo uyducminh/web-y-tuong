@@ -18,7 +18,7 @@ CONTACT_PHONE = ""   # SĐT/Zalo hiện trên trang "Bản dùng thử đã hế
 crons = ["0 3 * * *"]
 
 # Staging: dùng org GitHub test riêng + KV riêng. Wrangler KHÔNG kế thừa vars/kv/triggers sang env, nên khai báo lại.
-# Deploy: pnpm --filter @sme/worker exec wrangler deploy --env staging
+# Deploy: pnpm -F @sme/worker run deploy --env staging   (qua "run deploy" để predeploy nhúng template; đừng gọi thẳng wrangler deploy)
 # Secrets: wrangler secret put <TÊN> --env staging
 [env.staging]
 name = "sme-mvp-worker-staging"
