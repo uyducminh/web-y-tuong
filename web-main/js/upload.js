@@ -1,7 +1,8 @@
 // Kiểm tra file ngay trên trình duyệt, thu nhỏ + bỏ EXIF, tải ảnh lên LẦN LƯỢT (phiên ở Worker cập nhật không nguyên tử),
-// tách chữ PDF/Word rồi gửi phần chữ (tối đa 8.000 ký tự).
+// tách chữ PDF/Word rồi gửi phần chữ (tối đa 20.000 ký tự), đọc bảng tính Excel/CSV rồi gửi chữ + danh sách sản phẩm.
 import { api } from './api.js';
 import { docKind, extractText, MAX_CHARS } from './extract.js';
+import { extractExcel, isSheetFile } from './excel.js';
 
 export const MAX_IMAGES = 10;
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -12,15 +13,16 @@ const IMAGE_EXT = /\.(jpe?g|png|webp)$/i;
 const PDFJS_URL = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@6.5.438/legacy/build/pdf.min.mjs';
 const PDFJS_WORKER = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@6.5.438/legacy/build/pdf.worker.min.mjs';
 const MAMMOTH_URL = 'https://cdn.jsdelivr.net/npm/mammoth@1.13.0/mammoth.browser.min.js';
+const SHEETJS_URL = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
 
 function isImage(file) {
   // MIME là chính; một số điện thoại gửi MIME rỗng nên xét thêm đuôi file.
   return file.type ? !!IMAGE_TYPES[file.type] : IMAGE_EXT.test(file.name || '');
 }
 
-/** Chia file thành ảnh / tài liệu hợp lệ và danh sách lỗi tiếng Việt. Không gọi mạng. */
+/** Chia file thành ảnh / tài liệu / bảng tính hợp lệ và danh sách lỗi tiếng Việt. Không gọi mạng. */
 export function checkFiles(files, imagesAlready = 0) {
-  const images = []; const docs = []; const errors = [];
+  const images = []; const docs = []; const sheets = []; const errors = [];
   for (const f of files) {
     const name = `“${f.name || 'file'}”`;
     if (isImage(f)) {
@@ -29,8 +31,11 @@ export function checkFiles(files, imagesAlready = 0) {
     } else if (docKind(f)) {
       if (f.size > MAX_DOC_BYTES) errors.push(`Tài liệu ${name} quá lớn (tối đa 20MB).`);
       else docs.push(f);
+    } else if (isSheetFile(f)) {
+      if (f.size > MAX_DOC_BYTES) errors.push(`Bảng tính ${name} quá lớn (tối đa 20MB).`);
+      else sheets.push(f);
     } else {
-      errors.push(`Không nhận file ${name}. Ảnh chỉ nhận JPG, PNG hoặc WEBP; tài liệu nhận PDF hoặc Word (.docx).`);
+      errors.push(`Không nhận file ${name}. Ảnh chỉ nhận JPG, PNG hoặc WEBP; tài liệu nhận PDF, Word (.docx) hoặc Excel (.xlsx, .xls, .csv).`);
     }
   }
   const room = Math.max(0, MAX_IMAGES - imagesAlready);
@@ -40,7 +45,7 @@ export function checkFiles(files, imagesAlready = 0) {
       : `Chỉ gửi được tối đa ${MAX_IMAGES} ảnh. Bạn còn gửi được ${room} ảnh, các ảnh sau bị bỏ qua.`);
     images.length = room;
   }
-  return { images, docs, errors };
+  return { images, docs, sheets, errors };
 }
 
 export const MAX_SIDE = 1600;
@@ -111,12 +116,26 @@ export function loadDocLibs() {
   return libsPromise;
 }
 
+let sheetPromise = null;
+/** SheetJS (cdnjs) chỉ tải khi khách chọn bảng tính. */
+export function loadSheetJs() {
+  if (window.XLSX) return Promise.resolve(window.XLSX);
+  if (!sheetPromise) {
+    sheetPromise = loadScript(SHEETJS_URL).then(() => {
+      if (!window.XLSX) throw new Error('load');
+      return window.XLSX;
+    }).catch(() => { sheetPromise = null; throw new Error('load'); });
+  }
+  return sheetPromise;
+}
+
 /**
- * Gửi ảnh từng cái một rồi tới tài liệu. ui: { onImage(file, path), onDoc(file, chars), onError(msg), onProgress(text), onSessionLost() }.
+ * Gửi ảnh từng cái một rồi tới tài liệu, rồi bảng tính.
+ * ui: { onImage(file, path), onDoc(file, chars), onSheet(file, {chars, products}), onError(msg), onProgress(text), onSessionLost() }.
  * 404 (phiên hết hạn) → gọi onSessionLost() rồi dừng hẳn.
  * Trả về số ảnh đã tải lên thành công.
  */
-export async function sendFiles({ images, docs }, sessionId, ui) {
+export async function sendFiles({ images, docs, sheets }, sessionId, ui) {
   let sent = 0;
   for (let i = 0; i < images.length; i++) {
     const f = images[i];
@@ -149,6 +168,33 @@ export async function sendFiles({ images, docs }, sessionId, ui) {
     if (r.status === 404) { ui.onProgress(''); ui.onSessionLost(); return sent; }
     if (r.ok) ui.onDoc(f, text.length);
     else ui.onError(`Tài liệu “${f.name}”: ${r.data.error}`);
+  }
+  for (const f of sheets || []) {
+    ui.onProgress(`Đang đọc bảng tính “${f.name}”…`);
+    let XLSX;
+    try { XLSX = await loadSheetJs(); } catch {
+      ui.onError('Không tải được công cụ đọc bảng tính. Vui lòng kiểm tra mạng và thử lại, hoặc nhập sản phẩm và giá vào ô trò chuyện.');
+      continue;
+    }
+    let data;
+    try { data = await extractExcel(f, XLSX); } catch { data = null; }
+    if (!data || (!data.text && !data.products.length)) {
+      ui.onError(`Không đọc được bảng tính “${f.name}”. Bạn có thể nhập tên sản phẩm và giá vào ô trò chuyện.`);
+      continue;
+    }
+    if (data.text) {
+      const r = await api('/api/docs', { json: { sessionId, text: data.text.slice(0, MAX_CHARS) } });
+      if (r.status === 404) { ui.onProgress(''); ui.onSessionLost(); return sent; }
+      if (!r.ok) { ui.onError(`Bảng tính “${f.name}”: ${r.data.error}`); continue; }
+    }
+    let products = 0;
+    if (data.products.length) {
+      const r = await api('/api/products', { json: { sessionId, items: data.products } });
+      if (r.status === 404) { ui.onProgress(''); ui.onSessionLost(); return sent; }
+      if (r.ok) products = typeof r.data.count === 'number' ? r.data.count : data.products.length;
+      else ui.onError(`Danh sách sản phẩm trong “${f.name}”: ${r.data.error}`);
+    }
+    ui.onSheet(f, { chars: data.text.length, products });
   }
   ui.onProgress('');
   return sent;

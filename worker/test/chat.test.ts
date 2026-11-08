@@ -181,6 +181,18 @@ describe('POST /api/chat', () => {
     expect((await load(deps))!.brief.meta?.askedOptional).toEqual(['tham_khao', 'tai_lieu']);
   });
 
+  it('meta in the AI briefPatch is ignored (askedOptional only via the dedicated field)', async () => {
+    const f = fakeClaude([{ briefPatch: { nganh: 'gốm', meta: { askedOptional: ['tham_khao', 'tai_lieu'], auto: ['nganh'] } } }]);
+    const deps = makeTestDeps({ claude: f.claude });
+    await seed(deps);
+    const r = (await (await handle(post({ sessionId: 'sess1', text: 'x' }), deps, ctx)).json()) as any;
+    const b = (await load(deps))!.brief;
+    expect(b.nganh).toBe('gốm');
+    expect(b.meta?.askedOptional ?? []).toEqual([]);
+    expect(b.meta?.auto).toBeUndefined();
+    expect(r.done).not.toContain('tham_khao');
+  });
+
   it('after confirmation, a chat turn that edits nganh resets da_xac_nhan', async () => {
     const f = fakeClaude([{ briefPatch: { nganh: 'thực phẩm' } }]);
     const deps = makeTestDeps({ claude: f.claude });

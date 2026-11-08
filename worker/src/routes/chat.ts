@@ -29,7 +29,11 @@ export async function postChat(req: Request, deps: Deps): Promise<Response> {
     console.error(e);
     return errorJson(503, 'Trợ lý đang bận, vui lòng thử lại sau ít phút.');
   }
-  let brief = mergeBriefV2(s.brief, r.briefPatch);
+  // `meta` is code-owned: askedOptional only arrives through the dedicated field below.
+  const patch = r.briefPatch && typeof r.briefPatch === 'object' && !Array.isArray(r.briefPatch)
+    ? Object.fromEntries(Object.entries(r.briefPatch as Record<string, unknown>).filter(([k]) => k !== 'meta'))
+    : r.briefPatch;
+  let brief = mergeBriefV2(s.brief, patch);
   if (r.askedOptional) brief = mergeBriefV2(brief, { meta: { askedOptional: [r.askedOptional] } });
   s.brief = brief;
   s.turns += 1;

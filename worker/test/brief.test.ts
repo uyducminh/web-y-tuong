@@ -49,6 +49,38 @@ describe('POST /api/brief/confirm', () => {
     expect(await r.json()).toEqual({ ok: true });
     expect((await load(deps))!.brief.da_xac_nhan).toBe(true);
   });
+  it('optional lien_he {phone, zalo} is merged before the canConfirm check', async () => {
+    const deps = makeTestDeps();
+    await seed(deps, FULL);
+    const r = await handle(req('POST', '/api/brief/confirm', { sessionId: 's1', lien_he: { phone: '0912345678' } }), deps, ctx);
+    expect(r.status).toBe(200);
+    const b = (await load(deps))!.brief;
+    expect(b.lien_he).toEqual({ phone: '0912345678' });
+    expect(b.da_xac_nhan).toBe(true);
+  });
+  it('lien_he keeps existing contact fields; only phone/zalo accepted; invalid shapes ignored', async () => {
+    const deps = makeTestDeps();
+    await seed(deps, { ...FULL, lien_he: { address: 'Cầu Đất' } });
+    let r = await handle(req('POST', '/api/brief/confirm', { sessionId: 's1', lien_he: { address: 'Khác', fanpage: 'x' } }), deps, ctx);
+    expect(r.status).toBe(409); // address/fanpage are not accepted here, and there is still no phone/zalo
+    expect((await load(deps))!.brief.lien_he).toEqual({ address: 'Cầu Đất' });
+    r = await handle(req('POST', '/api/brief/confirm', { sessionId: 's1', lien_he: 'abc' }), deps, ctx);
+    expect(r.status).toBe(409);
+    r = await handle(req('POST', '/api/brief/confirm', { sessionId: 's1', lien_he: { zalo: '0987654321', phone: 5 } }), deps, ctx);
+    expect(r.status).toBe(200);
+    expect((await load(deps))!.brief.lien_he).toEqual({ address: 'Cầu Đất', zalo: '0987654321' });
+  });
+  it('a 409 after merging still persists the contact given', async () => {
+    const deps = makeTestDeps();
+    const { cam_giac, ...noStyle } = FULL;
+    await seed(deps, noStyle);
+    const r = await handle(req('POST', '/api/brief/confirm', { sessionId: 's1', lien_he: { phone: '0912345678' } }), deps, ctx);
+    expect(r.status).toBe(409);
+    expect(((await r.json()) as any).missing).toEqual(['cam_giac']);
+    const b = (await load(deps))!.brief;
+    expect(b.lien_he).toEqual({ phone: '0912345678' });
+    expect(b.da_xac_nhan).toBeFalsy();
+  });
   it('400 bad body, 404 unknown session', async () => {
     const deps = makeTestDeps();
     expect((await handle(req('POST', '/api/brief/confirm', {}), deps, ctx)).status).toBe(400);

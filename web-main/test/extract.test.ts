@@ -16,7 +16,7 @@ describe('extractText', () => {
     const text = await extractText(new File([PDF], 'ho-so.pdf', { type: 'application/pdf' }), libs);
     expect(text).toContain('Hợp tác xã');
     expect(text).toContain('Cà phê');
-    expect(text.length).toBeLessThanOrEqual(8000);
+    expect(text.length).toBeLessThanOrEqual(20000);
   });
 
   it('reads Vietnamese text from a DOCX', async () => {
@@ -24,16 +24,16 @@ describe('extractText', () => {
     const text = await extractText(new File([bytes], 'gioi-thieu.docx', { type: DOCX_MIME }), libs);
     expect(text).toContain('Hợp tác xã');
     expect(text).toContain('đèn mây');
-    expect(text.length).toBeLessThanOrEqual(8000);
+    expect(text.length).toBeLessThanOrEqual(20000);
   });
 
-  it('caps the result at 8.000 characters', async () => {
-    expect(MAX_CHARS).toBe(8000);
-    const long = Array.from({ length: 400 }, (_, i) => `Hợp tác xã đoạn ${i}: ${'nội dung dài '.repeat(5)}`);
+  it('caps the result at 20.000 characters (docsText limit)', async () => {
+    expect(MAX_CHARS).toBe(20000);
+    const long = Array.from({ length: 1000 }, (_, i) => `Hợp tác xã đoạn ${i}: ${'nội dung dài '.repeat(5)}`);
     const bytes = await makeDocx(long);
     const text = await extractText(new File([bytes], 'dai.docx', { type: '' }), libs);
     expect(text.startsWith('Hợp tác xã')).toBe(true);
-    expect(text.length).toBe(8000);
+    expect(text.length).toBe(20000);
   });
 
   it('rejects other file types with a Vietnamese message', async () => {

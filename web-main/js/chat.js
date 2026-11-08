@@ -1,16 +1,26 @@
 import { api, h, loadSession, saveSession, normalizePhone, qs, safeUrl, TURNSTILE_SITEKEY } from './api.js';
 import { checkFiles, sendFiles, MAX_IMAGES } from './upload.js';
+import { renderStepBar, renderChoices, renderSummary } from './steps.js';
 
 const NEEDS = {
   'gioi-thieu': 'Tôi cần website giới thiệu đơn vị và sản phẩm.',
   'thu-lead': 'Tôi cần trang thu thông tin khách hàng quan tâm.',
   'ban-hang': 'Tôi cần website bán hàng, khách đặt qua Zalo.',
 };
-const TOTAL_TURNS = 12;
+const TOTAL_TURNS = 30;
+/** Tên dễ hiểu của các mục còn thiếu (missing[] từ Worker). */
+const MISSING = {
+  ten_don_vi: 'tên đơn vị', loai_hinh: 'loại hình', nganh: 'ngành nghề', dia_phuong: 'địa phương',
+  san_pham: 'sản phẩm', diem_khac_biet: 'điểm khác biệt', khach_hang_muc_tieu: 'khách hàng chính',
+  muc_tieu_chinh: 'mục tiêu website', hanh_dong_mong_muon: 'việc khách nên làm', cam_giac: 'phong cách',
+  'lien_he.phone|zalo': 'số điện thoại hoặc Zalo',
+};
 
 const $ = (id) => document.getElementById(id);
 const log = $('log');
 const quick = $('quick');
+const choicesBox = $('choices');
+const stepsBox = $('steps');
 const msg = $('msg');
 const send = $('send');
 const fileInput = $('file');
@@ -22,9 +32,12 @@ const genForm = $('gen-form');
 const genSubmit = $('gen-submit');
 const genError = $('gen-error');
 
-let locked = false;      // hết lượt / bắt buộc tạo demo
+let locked = false;      // hết lượt / bắt buộc xác nhận
 let busy = false;        // đang chờ trả lời
 let imagesSent = 0;
+let docsSent = 0;
+let lastBrief = null;    // phiếu yêu cầu mới nhất từ GET /api/brief (để điền sẵn SĐT)
+const view = { step: { id: 'don_vi', index: 1, label: 'Đơn vị và ngành nghề' }, done: [], canConfirm: false, mustConfirm: false };
 
 // ---------- phiên + Turnstile ----------
 function turnstileToken() {
@@ -71,16 +84,17 @@ function ensureSession() {
 }
 
 const EXPIRED = 'Phiên trò chuyện đã hết hạn nên trợ lý không còn nhớ các câu trước.';
+const EXPIRED_CONFIRM = `${EXPIRED} Bạn trả lời lại vài câu (gõ vào ô bên dưới) để làm bản dùng thử nhé.`;
 
 /** Phiên ở Worker không còn (404): bỏ id đã lưu VÀ promise đã cache, để lần gửi sau tạo phiên mới. */
 function dropSession() {
   saveSession({ sessionId: undefined });
   sessionPromise = null;
   locked = false;
-  imagesSent = 0;
-  genOpen.classList.remove('is-ready');
-  setProgress({ filled: 0, total: 10 });
+  imagesSent = 0; docsSent = 0; lastBrief = null;
+  setView({ step: { id: 'don_vi', index: 1, label: 'Đơn vị và ngành nghề' }, done: [], canConfirm: false, mustConfirm: false });
   setTurns(TOTAL_TURNS);
+  syncComposer();
 }
 
 // ---------- hiển thị ----------
@@ -103,33 +117,62 @@ function setQuickReplies(list) {
   quick.hidden = !quick.children.length;
   if (!quick.hidden) quick.scrollIntoView({ block: 'end', behavior: 'smooth' });
 }
-function setProgress(p) {
-  if (!p || typeof p.filled !== 'number') return;
-  const total = p.total || 10;
-  const filled = Math.max(0, Math.min(total, p.filled));
-  $('progress-text').textContent = `Đã đủ ${filled}/${total} thông tin`;
-  const bar = $('progress');
-  bar.setAttribute('aria-valuenow', String(filled));
-  bar.style.setProperty('--p', String(filled / total));
+function setChoices(choices) {
+  const el = choices ? renderChoices(choices, (t) => sendText(t)) : null;
+  choicesBox.replaceChildren(...(el ? [el] : []));
+  if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+const genAllowed = () => view.mustConfirm || (view.canConfirm && view.step.id === 'xac_nhan');
+function setView(v) {
+  if (v.step && typeof v.step.index === 'number') view.step = v.step;
+  if (Array.isArray(v.done)) view.done = v.done;
+  if (typeof v.canConfirm === 'boolean') view.canConfirm = v.canConfirm;
+  if (typeof v.mustConfirm === 'boolean') view.mustConfirm = v.mustConfirm;
+  const open = $('stepbar')?.open;
+  const bar = renderStepBar(view);
+  bar.open = !!open;
+  stepsBox.replaceChildren(bar);
+  genOpen.hidden = !genAllowed();
+  if (genOpen.hidden) { genPanel.hidden = true; genOpen.setAttribute('aria-expanded', 'false'); }
 }
 function setTurns(left) {
   if (typeof left !== 'number') return;
-  $('turns').textContent = left > 0 ? `Còn ${left}/${TOTAL_TURNS} lượt hỏi đáp` : 'Đã hết lượt hỏi đáp';
-  if (left <= 3) genOpen.classList.add('is-ready');
+  $('turns').textContent = left > 0 ? `Còn ${left}/${TOTAL_TURNS} lượt` : 'Đã hết lượt hỏi đáp';
 }
 function syncComposer() {
   const off = locked || busy;
   msg.disabled = locked;
   send.disabled = off;
-  for (const b of document.querySelectorAll('[data-need], .chip')) b.disabled = off;
-  msg.placeholder = locked ? 'Đã đủ lượt hỏi đáp — bấm “Tạo bản dùng thử”' : 'Nhập trả lời…';
+  for (const b of document.querySelectorAll('[data-need], .chip, .choice, .btn-edit')) b.disabled = off;
+  msg.placeholder = locked ? 'Đã hết lượt hỏi đáp — bấm “Tạo bản dùng thử”' : 'Nhập trả lời…';
 }
 function lock(reason) {
   locked = true;
-  genOpen.classList.add('is-ready');
+  if (genAllowed()) genOpen.classList.add('is-ready');
   setQuickReplies([]);
+  setChoices(null);
   if (reason) bubble('bot', reason);
   syncComposer();
+}
+
+// ---------- tóm tắt ----------
+async function fetchBrief({ quiet = false } = {}) {
+  const sessionId = loadSession().sessionId;
+  if (!sessionId) return null;
+  const r = await api(`/api/brief/${encodeURIComponent(sessionId)}`, { timeoutMs: 20000 });
+  if (r.ok && r.data.brief) { lastBrief = r.data.brief; return r.data; }
+  if (r.status === 404 && !quiet) dropSession();
+  return null;
+}
+async function showSummary() {
+  const data = await fetchBrief({ quiet: true });
+  if (!data || !(data.canConfirm && data.step?.id === 'xac_nhan')) return;
+  $('summary')?.remove();
+  const el = renderSummary(data.brief, (_id, label) => sendText(`Mình muốn sửa phần “${label}”.`), openGen,
+    { images: imagesSent, docs: docsSent });
+  log.append(el);
+  syncComposer();
+  el.scrollIntoView({ block: 'start', behavior: 'smooth' });
 }
 
 // ---------- gửi tin ----------
@@ -139,7 +182,9 @@ async function sendText(raw) {
   showError('');
   busy = true;
   document.querySelector('.needs')?.remove();
+  $('summary')?.remove();
   setQuickReplies([]);
+  setChoices(null);
   syncComposer();
   const mine = bubble('me', text);
   const typing = h('div', { class: 'msg msg-bot is-typing', 'aria-label': 'Trợ lý đang trả lời' }, h('p', { text: 'Đang trả lời…' }));
@@ -157,17 +202,25 @@ async function sendText(raw) {
 
   if (r.ok && r.data.capped) {
     msg.value = '';
-    lock('Hôm nay trợ lý đã hết lượt tư vấn. Bạn bấm “Tạo bản dùng thử” và để lại tên, số điện thoại — chúng tôi sẽ gửi bản dùng thử cho bạn trong 24h.');
+    lock(view.canConfirm
+      ? 'Hôm nay trợ lý đã hết lượt tư vấn. Thông tin của bạn đã đủ: bấm “Tạo bản dùng thử” để nhận bản dùng thử.'
+      : 'Hôm nay trợ lý đã hết lượt tư vấn. Bạn vui lòng quay lại sau ít giờ để trả lời tiếp, thông tin đã trả lời vẫn được giữ.');
   } else if (r.ok) {
     msg.value = '';
     bubble('bot', String(r.data.reply || ''));
-    setProgress(r.data.progress);
+    setView(r.data);
     setTurns(r.data.turnsLeft);
-    if (r.data.mustGenerate || r.data.turnsLeft <= 0) lock('Mình đã có đủ thông tin để làm bản dùng thử. Bạn bấm “Tạo bản dùng thử” ở dưới nhé.');
-    else setQuickReplies(r.data.quickReplies);
+    if (r.data.mustConfirm || r.data.turnsLeft <= 0) {
+      lock('Đã hết lượt hỏi đáp. Bạn bấm “Tạo bản dùng thử” ở dưới, để lại số điện thoại để xác nhận nhé.');
+    } else {
+      setChoices(r.data.choices);
+      setQuickReplies(r.data.quickReplies);
+    }
+    if (r.data.canConfirm && r.data.step?.id === 'xac_nhan') await showSummary();
   } else if (r.status === 409) {
     msg.value = '';
     mine.remove();
+    setView({ mustConfirm: true });
     setTurns(0);
     lock(r.data.error);
   } else {
@@ -195,7 +248,7 @@ fileInput.addEventListener('change', async () => {
   if (!files.length) return;
   const checked = checkFiles(files, imagesSent);
   showError(checked.errors.join(' '));
-  if (!checked.images.length && !checked.docs.length) return;
+  if (!checked.images.length && !checked.docs.length && !checked.sheets.length) return;
 
   let sessionId;
   try { sessionId = await ensureSession(); } catch (e) { showError(e.message); return; }
@@ -203,6 +256,7 @@ fileInput.addEventListener('change', async () => {
   const errors = [...checked.errors];
   const thumbs = h('div', { class: 'thumbs' });
   const docNames = [];
+  const sheetNames = [];
   const progress = $('upload-progress');
   let lost = false;
   const sent = await sendFiles(checked, sessionId, {
@@ -211,6 +265,7 @@ fileInput.addEventListener('change', async () => {
       thumbs.append(h('img', { src: url, alt: f.name, width: 64, height: 64, onload: () => URL.revokeObjectURL(url) }));
     },
     onDoc: (f, chars) => docNames.push(`${f.name} (${chars.toLocaleString('vi-VN')} ký tự)`),
+    onSheet: (f, { products }) => sheetNames.push(products ? `${f.name} (${products} sản phẩm)` : f.name),
     onError: (m) => { errors.push(m); showError(errors.join(' ')); },
     onProgress: (t) => { progress.textContent = t; progress.hidden = !t; },
     onSessionLost: () => { lost = true; dropSession(); errors.push(`${EXPIRED} Bạn chọn lại ảnh/tài liệu để gửi vào phiên mới.`); showError(errors.join(' ')); },
@@ -218,27 +273,41 @@ fileInput.addEventListener('change', async () => {
   fileBtn.disabled = false;
   if (lost) return; // ảnh đã gửi thuộc phiên cũ, không tính
   imagesSent += sent;
+  docsSent += docNames.length + sheetNames.length;
   if (sent) bubble('me', `Đã nhận ${sent} ảnh. Bạn còn gửi được ${MAX_IMAGES - imagesSent} ảnh.`, thumbs);
   if (docNames.length) bubble('me', `Đã đọc tài liệu: ${docNames.join(', ')}.`);
+  if (sheetNames.length) bubble('me', `Đã đọc bảng tính: ${sheetNames.join(', ')}.`);
 });
 
-// ---------- tạo bản dùng thử ----------
-genOpen.addEventListener('click', () => {
+// ---------- xác nhận + tạo bản dùng thử ----------
+function prefill() {
+  const lh = lastBrief?.lien_he || {};
+  const phone = $('phone');
+  if (!phone.value) phone.value = lh.phone || lh.zalo || '';
+}
+function openGen() {
   genPanel.hidden = false;
   genOpen.setAttribute('aria-expanded', 'true');
+  prefill();
+  if (!lastBrief) fetchBrief({ quiet: true }).then(prefill).catch(() => {});
   genPanel.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   $('name').focus({ preventScroll: true });
-});
+}
+genOpen.addEventListener('click', openGen);
 $('gen-close').addEventListener('click', () => {
   genPanel.hidden = true;
   genOpen.setAttribute('aria-expanded', 'false');
-  genOpen.focus();
+  if (!genOpen.hidden) genOpen.focus();
 });
 
 function genFail(text, link) {
   genError.replaceChildren(h('span', { text }));
-  if (link) genError.append(' ', h('a', { href: link, target: '_blank', rel: 'noopener', text: 'Mở bản dùng thử của bạn' }));
+  if (link) genError.append(' ', h('a', { href: link, target: '_blank', rel: 'noopener', text: 'Mở bộ hồ sơ dùng thử của bạn' }));
   genError.hidden = false;
+}
+function resetSubmit() {
+  genSubmit.disabled = false;
+  genSubmit.textContent = 'Gửi và tạo bản dùng thử';
 }
 
 genForm.addEventListener('submit', async (e) => {
@@ -254,29 +323,40 @@ genForm.addEventListener('submit', async (e) => {
 
   genSubmit.disabled = true; // chặn bấm 2 lần ngay lập tức
   genSubmit.textContent = 'Đang gửi…';
-  let r;
-  try {
-    const sessionId = await ensureSession();
-    r = await api('/api/generate', { json: { sessionId, phone, name } });
-  } catch (err) {
-    r = { ok: false, status: 0, data: { error: err.message } };
+  let sessionId;
+  try { sessionId = await ensureSession(); } catch (err) { resetSubmit(); genFail(err.message); return; }
+
+  const c = await api('/api/brief/confirm', { json: { sessionId, lien_he: { phone } } });
+  if (!c.ok) {
+    resetSubmit();
+    if (c.status === 404) {
+      dropSession(); // ẩn cả khung này: phiên mới phải trả lời lại trước khi xác nhận
+      showError(EXPIRED_CONFIRM);
+      return;
+    }
+    const miss = Array.isArray(c.data.missing) ? c.data.missing.map((m) => MISSING[m] || m) : [];
+    genFail(miss.length ? `${c.data.error} Còn thiếu: ${miss.join(', ')}.` : c.data.error);
+    return;
   }
+
+  const r = await api('/api/generate', { json: { sessionId, phone, name } });
   if (r.ok && r.data.jobId) {
     saveSession({ jobId: r.data.jobId, revisionsLeft: 3 });
     location.href = `status.html?job=${encodeURIComponent(r.data.jobId)}`;
     return;
   }
-  genSubmit.disabled = false;
-  genSubmit.textContent = 'Gửi và tạo bản dùng thử';
+  resetSubmit();
   if (r.status === 404) {
     dropSession();
-    genFail(`${EXPIRED} Bạn nên trả lời lại vài câu để bản dùng thử đúng hơn, hoặc bấm gửi lần nữa để tạo ngay.`);
+    showError(EXPIRED_CONFIRM);
     return;
   }
   genFail(r.data.error, r.status === 409 ? safeUrl(r.data.url) : '');
 });
 
 // ---------- khởi động ----------
+setView({});
+setTurns(TOTAL_TURNS);
 const prev = loadSession();
 if (prev.jobId) {
   bubble('bot', 'Bạn đã gửi yêu cầu tạo bản dùng thử trước đó.',
@@ -288,5 +368,13 @@ ensureSession().catch((e) => {
   locked = true; syncComposer();
   genOpen.disabled = true;
 });
+// Quay lại trang giữa chừng: lấy bước hiện tại từ Worker.
+if (prev.sessionId) {
+  fetchBrief().then((d) => {
+    if (!d) return;
+    setView(d);
+    if (d.canConfirm && d.step?.id === 'xac_nhan') showSummary();
+  }).catch(() => {});
+}
 const need = qs('need');
 if (NEEDS[need]) sendText(NEEDS[need]);
