@@ -1,7 +1,7 @@
-import { defaultSite, type Proposal, type SiteJson } from '@sme/schema';
+import { defaultSite, templateFor, type Proposal, type SiteJson } from '@sme/schema';
 import type { Deps, Job, Session, SiteMeta } from '../types';
 import { getJson, putJson } from '../kv';
-import { fallbackProposal, generateContent, templateFor } from '../ai/generate';
+import { fallbackProposal, generateContent } from '../ai/generate';
 import { overDailyCap } from '../ai/cost';
 import { bumpStat } from '../sites';
 import {
@@ -146,11 +146,11 @@ async function publishStage(deps: Deps, jobId: string, runner: string): Promise<
   const demoUrl = pagesUrl(deps.config, meta.repo);
   const leadUrl = `${deps.config.apiBase}/leads/${job.siteId}?key=${meta.leadKey}`;
   await quietly(() => deps.sheet.append({
-    thoi_gian: deps.now().toISOString(), ten: job.name, sdt: job.phone, nhu_cau: s.brief.nhu_cau ?? '',
+    thoi_gian: deps.now().toISOString(), ten: job.name, sdt: job.phone, nhu_cau: s.brief.muc_tieu_chinh ?? '',
     link_demo: demoUrl, link_lead: leadUrl, trang_thai: 'demo', siteId: job.siteId,
   }));
   await quietly(() => deps.notify.send(
-    `Demo mới: ${job.name} – ${job.phone}\nNhu cầu: ${s.brief.nhu_cau ?? '(chưa rõ)'}\nDemo: ${demoUrl}\nLead: ${leadUrl}`));
+    `Demo mới: ${job.name} – ${job.phone}\nNhu cầu: ${s.brief.muc_tieu_chinh ?? '(chưa rõ)'}\nDemo: ${demoUrl}\nLead: ${leadUrl}`));
   return { job, next: 'poll' };
 }
 

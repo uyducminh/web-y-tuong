@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { handle } from '../src/index';
 import { makeTestDeps, TEST_ORIGIN, testConfig } from './fakes';
 import { getJson, putJson } from '../src/kv';
-import { BriefSchema } from '@sme/schema';
+import { BriefV2Schema, STEP_LABELS } from '@sme/schema';
 import type { Session, Msg } from '../src/types';
 import { costMicroUsd, addCost, costToday, overDailyCap, COST_SHARDS } from '../src/ai/cost';
 import { ClaudeError, makeClaudeClient } from '../src/clients/claude';
@@ -12,21 +12,25 @@ const post = (body: unknown) =>
   new Request('https://w.test/api/chat', { method: 'POST', body: JSON.stringify(body),
     headers: { 'content-type': 'application/json', 'CF-Connecting-IP': '1.1.1.1', Origin: TEST_ORIGIN } });
 
+const get = (path: string) => new Request(`https://w.test${path}`, { headers: { Origin: TEST_ORIGIN } });
+const FULL = { ten_don_vi: 'HTX A', loai_hinh: 'htx', nganh: 'nông sản', dia_phuong: 'Lâm Đồng', san_pham: [{ ten: 'Cà phê' }],
+  diem_khac_biet: 'OCOP', khach_hang_muc_tieu: 'quán', muc_tieu_chinh: 'ban-hang', hanh_dong_mong_muon: 'zalo', cam_giac: 'moc-mac',
+  meta: { askedOptional: ['tham_khao', 'tai_lieu'] } } as const;
 const usage = { input_tokens: 1000, output_tokens: 200 };
-type Reply = { reply: string; briefPatch: any; quickReplies: string[]; readyToGenerate: boolean };
+type Reply = { reply: string; briefPatch: any; quickReplies: string[]; choices: any; askedOptional: string };
 const fakeClaude = (replies: Partial<Reply>[] | ((i: number) => Partial<Reply>)) => {
   const calls: any[] = [];
   const callTool = vi.fn(async (o: any) => {
     calls.push(o);
     const r = typeof replies === 'function' ? replies(calls.length - 1) : replies[calls.length - 1] ?? {};
-    return { input: { reply: 'Xin chào', briefPatch: {}, quickReplies: ['a', 'b'], readyToGenerate: false, ...r }, usage };
+    return { input: { reply: 'Xin chào', briefPatch: {}, quickReplies: ['a', 'b'], ...r }, usage };
   });
   return { claude: { callTool } as any, calls, callTool };
 };
 
 async function seed(deps: ReturnType<typeof makeTestDeps>, over: Partial<Session> = {}) {
   const s: Session = { id: 'sess1', ip: '1.1.1.1', createdAt: '2026-11-08T00:00:00Z', turns: 0,
-    brief: BriefSchema.parse({}), messages: [], uploads: [], docsText: '', ...over };
+    brief: BriefV2Schema.parse({}), messages: [], uploads: [], docsText: '', ...over };
   await putJson(deps.kv, `sess:${s.id}`, s, 3600);
   return s;
 }
@@ -75,55 +79,118 @@ describe('POST /api/chat', () => {
     expect((await handle(post({ text: 1 }), deps, ctx)).status).toBe(400);
   });
 
-  it('merges briefPatch (lien_he one level deeper), bumps turns, reports progress', async () => {
+  it('merges briefPatch, bumps turns, reports step/done/missing/canConfirm/turnsLeft', async () => {
     const f = fakeClaude([
       { briefPatch: { ten_don_vi: 'HTX Xanh', lien_he: { phone: '0900000001' } } },
-      { briefPatch: { nganh: 'Nông sản', lien_he: { zalo: '0900000001' }, bogus: 1, mau_sac: 5 } },
+      { briefPatch: { nganh: 'Nông sản', lien_he: { zalo: '0900000001' }, bogus: 1, cam_giac: 'kiểu-lạ' } },
     ]);
     const deps = makeTestDeps({ claude: f.claude });
     await seed(deps);
     let r = await handle(post({ sessionId: 'sess1', text: 'Xin chào' }), deps, ctx);
     expect(r.status).toBe(200);
     let b = (await r.json()) as any;
-    expect(b.progress.filled).toBe(2);
-    expect(b.turnsLeft).toBe(11);
-    expect(b.mustGenerate).toBe(false);
+    expect(b.step).toEqual({ id: 'don_vi', index: 1, label: STEP_LABELS.don_vi });
+    expect(b.done).toEqual(['xac_nhan']); // contact already present: done is data-driven, not order-driven
+    expect(b.missing).toContain('loai_hinh');
+    expect(b.canConfirm).toBe(false);
+    expect(b.turnsLeft).toBe(29);
+    expect(b.mustConfirm).toBe(false);
     expect(b.reply).toBe('Xin chào');
+    expect(b.progress).toBeUndefined();
     r = await handle(post({ sessionId: 'sess1', text: 'tiếp' }), deps, ctx);
     b = (await r.json()) as any;
-    expect(b.progress.filled).toBe(3);
+    expect(b.turnsLeft).toBe(28);
     const s = (await load(deps))!;
     expect(s.turns).toBe(2);
     expect(s.brief.lien_he).toEqual({ phone: '0900000001', zalo: '0900000001' });
     expect(s.brief.nganh).toBe('Nông sản');
     expect((s.brief as any).bogus).toBeUndefined();
-    expect(s.brief.mau_sac).toBeUndefined(); // invalid patch key dropped
+    expect(s.brief.cam_giac).toBeUndefined();
     expect(s.messages.map((m) => m.role)).toEqual(['user', 'assistant', 'user', 'assistant']);
   });
 
-  it('turn 12 returns mustGenerate; turn 13 is 409 without calling Claude', async () => {
+  it('one reply filling steps 1 and 2 moves step to khach_hang', async () => {
+    const f = fakeClaude([{ briefPatch: { ten_don_vi: 'HTX A', loai_hinh: 'htx', nganh: 'nông sản', dia_phuong: 'Lâm Đồng',
+      san_pham: [{ ten: 'Cà phê', gia: 90000 }], diem_khac_biet: 'OCOP' } }]);
+    const deps = makeTestDeps({ claude: f.claude });
+    await seed(deps);
+    const b = (await (await handle(post({ sessionId: 'sess1', text: 'x' }), deps, ctx)).json()) as any;
+    expect(b.step.id).toBe('khach_hang');
+    expect(b.step.index).toBe(3);
+    expect(b.done).toEqual(['don_vi', 'san_pham']);
+  });
+
+  it('turn 30 returns mustConfirm; turn 31 is 409 without calling Claude', async () => {
     const f = fakeClaude([{}]);
     const deps = makeTestDeps({ claude: f.claude });
-    await seed(deps, { turns: 11 });
+    await seed(deps, { turns: 29 });
     const b = (await (await handle(post({ sessionId: 'sess1', text: 'x' }), deps, ctx)).json()) as any;
-    expect(b.mustGenerate).toBe(true);
+    expect(b.mustConfirm).toBe(true);
     expect(b.turnsLeft).toBe(0);
     const r = await handle(post({ sessionId: 'sess1', text: 'x' }), deps, ctx);
     expect(r.status).toBe(409);
     expect(f.callTool).toHaveBeenCalledTimes(1);
   });
 
-  it('system prompt: wrap-up instruction from turn 9 only, missing list always', async () => {
+  it('system prompt: step label + missing of current step; wrap-up from turn 26 only', async () => {
     const f = fakeClaude(() => ({}));
     const deps = makeTestDeps({ claude: f.claude });
-    await seed(deps, { turns: 7 });
-    await handle(post({ sessionId: 'sess1', text: 'x' }), deps, ctx); // turn 8
-    await handle(post({ sessionId: 'sess1', text: 'x' }), deps, ctx); // turn 9
-    expect(f.calls[0].system).not.toContain('tóm tắt và đề nghị tạo demo');
-    expect(f.calls[1].system).toContain('tóm tắt và đề nghị tạo demo');
-    expect(f.calls[0].system).toContain('ten_don_vi');
+    await seed(deps, { turns: 24 });
+    await handle(post({ sessionId: 'sess1', text: 'x' }), deps, ctx); // turn 25
+    await handle(post({ sessionId: 'sess1', text: 'x' }), deps, ctx); // turn 26
+    expect(f.calls[0].system).not.toContain('tóm tắt và chuyển sang bước 8');
+    expect(f.calls[1].system).toContain('tóm tắt và chuyển sang bước 8');
+    expect(f.calls[0].system).toContain(STEP_LABELS.don_vi);
+    for (const k of ['ten_don_vi', 'loai_hinh', 'nganh', 'dia_phuong']) expect(f.calls[0].system).toContain(k);
     expect(f.calls[0].model).toBe(testConfig.chatModel);
     expect(f.calls[0].tool.name).toBeTruthy();
+  });
+
+  it('prompt follows the data-driven step (tham_khao asks link/ảnh; tai_lieu invites files)', async () => {
+    const f = fakeClaude(() => ({}));
+    const deps = makeTestDeps({ claude: f.claude });
+    const { meta: _m, ...base } = FULL;
+    await seed(deps, { brief: BriefV2Schema.parse(base) });
+    await handle(post({ sessionId: 'sess1', text: 'x' }), deps, ctx);
+    expect(f.calls[0].system).toContain(STEP_LABELS.tham_khao);
+    expect(f.calls[0].system).toMatch(/thích điểm gì/);
+    await seed(deps, { brief: BriefV2Schema.parse({ ...base, meta: { askedOptional: ['tham_khao'] } }) });
+    await handle(post({ sessionId: 'sess1', text: 'x' }), deps, ctx);
+    expect(f.calls[1].system).toContain(STEP_LABELS.tai_lieu);
+    expect(f.calls[1].system).toMatch(/logo/);
+  });
+
+  it('caps choices at 8; passes kind/options through; drops malformed choices', async () => {
+    const opts = Array.from({ length: 12 }, (_, i) => ({ value: 'v' + i, label: 'L' + i, hint: 'h' }));
+    const f = fakeClaude([{ choices: { kind: 'multi', options: opts } }, { choices: { kind: 'nope', options: [] } as any }]);
+    const deps = makeTestDeps({ claude: f.claude });
+    await seed(deps);
+    let b = (await (await handle(post({ sessionId: 'sess1', text: 'x' }), deps, ctx)).json()) as any;
+    expect(b.choices.kind).toBe('multi');
+    expect(b.choices.options).toHaveLength(8);
+    expect(b.choices.options[0]).toEqual({ value: 'v0', label: 'L0', hint: 'h' });
+    b = (await (await handle(post({ sessionId: 'sess1', text: 'x' }), deps, ctx)).json()) as any;
+    expect(b.choices).toBeUndefined();
+  });
+
+  it('askedOptional is recorded only for tham_khao / tai_lieu', async () => {
+    const f = fakeClaude([{ askedOptional: 'tham_khao' }, { askedOptional: 'muc_tieu' }, { askedOptional: 'tai_lieu' }]);
+    const deps = makeTestDeps({ claude: f.claude });
+    await seed(deps);
+    for (let i = 0; i < 3; i++) await handle(post({ sessionId: 'sess1', text: 'x' }), deps, ctx);
+    expect((await load(deps))!.brief.meta?.askedOptional).toEqual(['tham_khao', 'tai_lieu']);
+  });
+
+  it('after confirmation, a chat turn that edits nganh resets da_xac_nhan', async () => {
+    const f = fakeClaude([{ briefPatch: { nganh: 'thực phẩm' } }]);
+    const deps = makeTestDeps({ claude: f.claude });
+    await seed(deps, { brief: BriefV2Schema.parse({ ...FULL, lien_he: { zalo: '0912345678' }, da_xac_nhan: true }) });
+    const r = await handle(get('/api/brief/sess1'), deps, ctx);
+    expect(((await r.json()) as any).brief.da_xac_nhan).toBe(true);
+    await handle(post({ sessionId: 'sess1', text: 'đổi ngành' }), deps, ctx);
+    const b = (await (await handle(get('/api/brief/sess1'), deps, ctx)).json()) as any;
+    expect(b.brief.da_xac_nhan).toBe(false);
+    expect(b.brief.nganh).toBe('thực phẩm');
   });
 
   it('includes docsText (<=8000) in system prompt', async () => {
@@ -133,7 +200,6 @@ describe('POST /api/chat', () => {
     await handle(post({ sessionId: 'sess1', text: 'x' }), deps, ctx);
     const sys: string = f.calls[0].system;
     expect(sys).toContain('BANGGIA');
-    expect(sys.length).toBeLessThan(8000 + 6000);
     expect(sys.split('z').length - 1).toBeLessThanOrEqual(8000);
   });
 

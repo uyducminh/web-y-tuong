@@ -31,6 +31,8 @@ export async function postGenerate(req: Request, deps: Deps): Promise<Response> 
     if (prev && !(prev.state === 'failed' && prev.stage !== 'published')) return json({ jobId: prev.id });
   }
 
+  if (!s.brief.da_xac_nhan) return errorJson(409, 'Vui lòng xác nhận thông tin trước khi tạo bản dùng thử.');
+
   const phone = typeof body.phone === 'string' ? normalizePhone(body.phone) : null;
   if (!phone) return errorJson(400, BAD_PHONE);
   const name = typeof body.name === 'string' ? body.name.trim().slice(0, 100) : '';

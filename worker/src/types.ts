@@ -1,4 +1,4 @@
-import type { Brief, TemplateId } from '@sme/schema';
+import type { BriefV2, TemplateId } from '@sme/schema';
 
 export type Msg = { role: 'user' | 'assistant'; content: string };
 
@@ -51,7 +51,7 @@ export interface Deps {
 }
 
 export type Session = { id: string; ip: string; createdAt: string; turns: number;
-  brief: Brief; messages: { role: 'user' | 'assistant'; content: string }[];
+  brief: BriefV2; messages: { role: 'user' | 'assistant'; content: string }[];
   uploads: string[]; docsText: string; jobId?: string; siteId?: string };
 
 export type Env = {

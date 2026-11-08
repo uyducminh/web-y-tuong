@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { BriefSchema, SiteSchema, defaultSite, type SiteJson } from '@sme/schema';
+import { BriefV2Schema, SiteSchema, defaultSite, type SiteJson } from '@sme/schema';
 import { makeTestDeps } from './fakes';
 import { generateContent, reviseContent, RevisionFailedError, sanitizeAssets } from '../src/ai/generate';
 import type { Session } from '../src/types';
@@ -15,13 +15,13 @@ const proposal = {
 };
 const mkSession = (brief: any = {}): Session => ({
   id: 's1', ip: '1.1.1.1', createdAt: '2026-11-08T00:00:00Z', turns: 3,
-  brief: BriefSchema.parse(brief), messages: [], uploads: ['assets/1-a.jpg'], docsText: '',
+  brief: BriefV2Schema.parse(brief), messages: [], uploads: ['assets/1-a.jpg'], docsText: '',
 });
 const fake = (outs: any[]) => {
   const callTool = vi.fn(async () => ({ input: outs[Math.min(callTool.mock.calls.length - 1, outs.length - 1)], usage }));
   return { callTool } as any;
 };
-const goodSite = (over: any = {}) => ({ ...defaultSite('tpl-gioi-thieu', BriefSchema.parse({ ten_don_vi: 'AI Name' }), 'x'), ...over });
+const goodSite = (over: any = {}) => ({ ...defaultSite('tpl-gioi-thieu', BriefV2Schema.parse({ ten_don_vi: 'AI Name' }), 'x'), ...over });
 
 describe('generateContent', () => {
   it('retries once after invalid output and uses the valid one', async () => {
@@ -43,7 +43,7 @@ describe('generateContent', () => {
       demo: { badge: false } }, proposal: { bad: 1 } };
     const claude = fake([bad]);
     const deps = makeTestDeps({ claude });
-    const r = await generateContent(deps, mkSession({ nhu_cau: 'gioi-thieu', ten_don_vi: 'A', lien_he: { phone: '0900000001' } }), 'site1');
+    const r = await generateContent(deps, mkSession({ muc_tieu_chinh: 'gioi-thieu', ten_don_vi: 'A', lien_he: { phone: '0900000001' } }), 'site1');
     expect(claude.callTool).toHaveBeenCalledTimes(2);
     expect(r.usedFallback).toBe(true);
     expect(SiteSchema.safeParse(r.site).success).toBe(true);
@@ -76,11 +76,11 @@ describe('generateContent', () => {
     expect(r.proposal.packages.map((p) => p.name)).toEqual(['Rẻ', 'Chuẩn']);
   });
 
-  it('chooses template by nhu_cau and ignores AI template', async () => {
-    const cases: [string | undefined, string][] = [['thu-lead', 'tpl-thu-lead'], ['ban-hang', 'tpl-ban-hang'], ['gioi-thieu', 'tpl-gioi-thieu'], ['khac', 'tpl-gioi-thieu'], [undefined, 'tpl-gioi-thieu']];
+  it('chooses template by muc_tieu_chinh and ignores AI template', async () => {
+    const cases: [string | undefined, string][] = [['thu-lead', 'tpl-thu-lead'], ['ban-hang', 'tpl-ban-hang'], ['gioi-thieu', 'tpl-gioi-thieu'], ['tim-dai-ly', 'tpl-thu-lead'], ['tuyen-dung', 'tpl-thu-lead'], [undefined, 'tpl-gioi-thieu']];
     for (const [nc, tpl] of cases) {
       const claude = fake([{ site: goodSite({ template: 'tpl-ban-hang' }), proposal }]);
-      const r = await generateContent(makeTestDeps({ claude }), mkSession(nc ? { nhu_cau: nc } : {}), 's');
+      const r = await generateContent(makeTestDeps({ claude }), mkSession(nc ? { muc_tieu_chinh: nc } : {}), 's');
       expect(r.site.template).toBe(tpl);
       expect(claude.callTool.mock.calls[0][0].tool.name).toBe('emit_site');
       expect(claude.callTool.mock.calls[0][0].model).toBe('claude-sonnet-5-5');
@@ -88,15 +88,15 @@ describe('generateContent', () => {
   });
 
   it('marks empty brief keys in brief.meta.auto and sets demo expiry', async () => {
-    const s = mkSession({ nhu_cau: 'ban-hang', ten_don_vi: 'A' });
+    const s = mkSession({ muc_tieu_chinh: 'ban-hang', ten_don_vi: 'A' });
     const r = await generateContent(makeTestDeps({ claude: fake([{ site: goodSite(), proposal }]) }), s, 's');
-    expect(s.brief.meta?.auto).toEqual(['nganh', 'san_pham_chinh', 'khach_hang_muc_tieu', 'diem_manh', 'lien_he', 'mau_sac', 'muc_tieu_web', 'tham_khao']);
+    expect(s.brief.meta?.auto).toEqual(['loai_hinh', 'nganh', 'dia_phuong', 'san_pham', 'diem_khac_biet', 'khach_hang_muc_tieu', 'hanh_dong_mong_muon', 'cam_giac', 'lien_he.phone|zalo']);
     expect(r.site.demo).toEqual({ badge: true, expires: '2026-12-08', checkoutUrl: '' });
   });
 
   it('tells the AI the exact per-type section fields: tool schema + defaultSite skeleton in the prompt', async () => {
     const claude = fake([{ site: goodSite(), proposal }]);
-    await generateContent(makeTestDeps({ claude }), mkSession({ nhu_cau: 'thu-lead', ten_don_vi: 'HTX Mây' }), 's');
+    await generateContent(makeTestDeps({ claude }), mkSession({ muc_tieu_chinh: 'thu-lead', ten_don_vi: 'HTX Mây' }), 's');
     const arg = claude.callTool.mock.calls[0][0];
     const schema = JSON.stringify(arg.tool.input_schema);
     for (const f of ['"desc"', '"price"', '"q"', '"a"', '"text"', '"endsAt"', '"body"', '"images"', '"button"']) expect(schema).toContain(f);
@@ -142,7 +142,7 @@ describe('sanitizeAssets', () => {
 
 describe('reviseContent', () => {
   it('keeps siteId, template and demo from the original', async () => {
-    const orig = { ...defaultSite('tpl-thu-lead', BriefSchema.parse({ ten_don_vi: 'A' }), 'keep', new Date('2026-11-08')), demo: { badge: true, expires: '2026-12-01', checkoutUrl: 'https://pay' } };
+    const orig = { ...defaultSite('tpl-thu-lead', BriefV2Schema.parse({ ten_don_vi: 'A' }), 'keep', new Date('2026-11-08')), demo: { badge: true, expires: '2026-12-01', checkoutUrl: 'https://pay' } };
     const claude = fake([{ site: { ...orig, siteId: 'other', template: 'tpl-ban-hang', demo: { badge: false, expires: '2030-01-01', checkoutUrl: '' }, brand: { name: 'Mới', color: '#abcdef' } } }]);
     const r = await reviseContent(makeTestDeps({ claude }), orig, 'đổi tên', []);
     expect(r.siteId).toBe('keep');
@@ -151,7 +151,7 @@ describe('reviseContent', () => {
     expect(r.brand.name).toBe('Mới');
   });
   it('throws RevisionFailedError when output invalid after retry', async () => {
-    const orig = defaultSite('tpl-ban-hang', BriefSchema.parse({}), 'k', new Date('2026-11-08'));
+    const orig = defaultSite('tpl-ban-hang', BriefV2Schema.parse({}), 'k', new Date('2026-11-08'));
     const claude = fake([{ site: { junk: 1 } }]);
     await expect(reviseContent(makeTestDeps({ claude }), orig, 'x', [])).rejects.toBeInstanceOf(RevisionFailedError);
     expect(claude.callTool).toHaveBeenCalledTimes(2);

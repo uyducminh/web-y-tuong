@@ -3,6 +3,7 @@ import { makeDeps } from './deps';
 import { corsHeaders, errorJson, withCors } from './http';
 import { createSession } from './routes/session';
 import { postChat } from './routes/chat';
+import { getBrief, postConfirm, postProducts } from './routes/brief';
 import { postUpload, postDocs } from './routes/upload';
 import { postGenerate, postRunJob } from './routes/generate';
 import { getStatus } from './routes/status';
@@ -22,6 +23,9 @@ export const routes: Route[] = [
   { method: 'POST', path: '/api/chat', handler: (req, deps) => postChat(req, deps) },
   { method: 'POST', path: '/api/upload', handler: (req, deps) => postUpload(req, deps) },
   { method: 'POST', path: '/api/docs', handler: (req, deps) => postDocs(req, deps) },
+  { method: 'GET', path: /^\/api\/brief\/[A-Za-z0-9]{1,64}$/, handler: (_req, deps, _ctx, url) => getBrief(deps, url.pathname.split('/')[3]) },
+  { method: 'POST', path: '/api/brief/confirm', handler: (req, deps) => postConfirm(req, deps) },
+  { method: 'POST', path: '/api/products', handler: (req, deps) => postProducts(req, deps) },
   { method: 'POST', path: '/api/generate', handler: (req, deps) => postGenerate(req, deps) },
   { method: 'POST', path: /^\/api\/jobs\/[A-Za-z0-9]{1,64}\/run$/, handler: (_req, deps, _ctx, url) => postRunJob(deps, url.pathname.split('/')[3]) },
   { method: 'GET', path: /^\/api\/status\/[A-Za-z0-9]{1,64}$/, handler: (_req, deps, _ctx, url) => getStatus(deps, url.pathname.split('/')[3]) },

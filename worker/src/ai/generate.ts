@@ -1,8 +1,8 @@
 import { z } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import {
-  BRIEF_KEYS, ProposalSchema, SectionSchema, SiteSchema, briefProgress, defaultSite,
-  type Brief, type Proposal, type SiteJson, type TemplateId,
+  ProposalSchema, SectionSchema, SiteSchema, defaultSite, stepState, templateFor,
+  type BriefV2 as Brief, type Proposal, type SiteJson, type TemplateId,
 } from '@sme/schema';
 import type { Deps, Msg, Session } from '../types';
 import { recordUsage } from './cost';
@@ -11,11 +11,6 @@ import { ClaudeError } from '../clients/claude';
 const GenOutSchema = z.object({ site: SiteSchema, proposal: ProposalSchema });
 const EMIT_GEN = { name: 'emit_site', input_schema: zodToJsonSchema(GenOutSchema, { $refStrategy: 'none' }) as object };
 const EMIT_REVISE = { name: 'emit_site', input_schema: zodToJsonSchema(z.object({ site: SiteSchema }), { $refStrategy: 'none' }) as object };
-
-const TEMPLATE_BY_NEED: Record<string, TemplateId> = {
-  'gioi-thieu': 'tpl-gioi-thieu', 'thu-lead': 'tpl-thu-lead', 'ban-hang': 'tpl-ban-hang',
-};
-export const templateFor = (brief: Brief): TemplateId => TEMPLATE_BY_NEED[brief.nhu_cau ?? ''] ?? 'tpl-gioi-thieu';
 
 const MAX_TOKENS = 8000;
 /** Per Claude call (retries included). */
@@ -74,7 +69,7 @@ export function fallbackProposal(deps: Deps, brief: Brief): Proposal {
   const pkgs = config.packages
     .filter((p) => config.allowTestPrice || p.priceVnd >= 10_000_000)
     .map((p) => ({ name: p.name, priceVnd: p.priceVnd, items: p.items }));
-  const goal = brief.muc_tieu_web || 'giới thiệu và bán hàng hiệu quả hơn trên mạng';
+  const goal = brief.thanh_cong_la_gi || 'giới thiệu và bán hàng hiệu quả hơn trên mạng';
   return {
     summary: `${name}${brief.nganh ? ` (${brief.nganh})` : ''} cần một website để ${goal}.`,
     problems: [
@@ -132,11 +127,11 @@ async function call<T>(deps: Deps, o: { system: string; messages: Msg[]; tool: {
 /**
  * Generates site.json + proposal with one validated retry, then falls back to defaultSite merged with valid AI parts.
  * Side effect: sets `s.brief.meta.auto` to the BRIEF_KEYS that are empty at generation time (the caller must persist `s`).
- * Template is derived from `brief.nhu_cau` by code; siteId/template/demo always come from code.
+ * Template is derived from `brief.muc_tieu_chinh` by code; siteId/template/demo always come from code.
  */
 export async function generateContent(deps: Deps, s: Session, siteId: string)
   : Promise<{ site: SiteJson; proposal: Proposal; usedFallback: boolean }> {
-  const missing = briefProgress(s.brief).missing.filter((k) => (BRIEF_KEYS as readonly string[]).includes(k));
+  const missing = stepState(s.brief).missing;
   s.brief = { ...s.brief, meta: { ...(s.brief.meta ?? {}), auto: missing } };
 
   const template = templateFor(s.brief);

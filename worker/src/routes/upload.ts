@@ -6,7 +6,7 @@ import { getJson, putJson } from '../kv';
 const TTL = 7 * 24 * 3600;
 export const MAX_FILES = 10;
 export const MAX_BYTES = 5 * 1024 * 1024;
-export const MAX_DOCS_CHARS = 8000;
+export const MAX_DOCS_CHARS = 20_000;
 const NO_SESSION = 'Không tìm thấy phiên trò chuyện. Vui lòng tải lại trang để bắt đầu lại.';
 const ALLOWED = new Set(['image/jpeg', 'image/png', 'image/webp']);
 

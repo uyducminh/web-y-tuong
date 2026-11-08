@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { BriefSchema, defaultSite } from '@sme/schema';
+import { BriefV2Schema, defaultSite } from '@sme/schema';
 import { makeTestDeps } from './fakes';
 import { getJson, putJson } from '../src/kv';
 import { runDaily } from '../src/cron';
@@ -21,7 +21,7 @@ function mk(over: Partial<Deps> = {}) {
     status: vi.fn(async () => ({ state: 'pending' as const })), remove: vi.fn(async (_repo: string) => {}),
   };
   const claude = { callTool: vi.fn(async () => ({
-    input: { site: defaultSite('tpl-thu-lead', BriefSchema.parse({ ten_don_vi: 'X' }), 'x'), proposal },
+    input: { site: defaultSite('tpl-thu-lead', BriefV2Schema.parse({ ten_don_vi: 'X' }), 'x'), proposal },
     usage: { input_tokens: 1, output_tokens: 1 } })) };
   const deps = makeTestDeps({ sheet, notify, publisher, claude: claude as any, ...over });
   return { deps, sheet, notify, publisher, claude };
@@ -37,7 +37,7 @@ async function seedSite(deps: Deps, id: string, o: Partial<SiteMeta> = {}) {
 
 async function seedJob(deps: Deps, id: string, o: Partial<JobRecord> = {}, queued = false) {
   const sessionId = 's-' + id, siteId = 'demo-' + id;
-  const s: Session = { id: sessionId, ip: '1', createdAt: NOW, turns: 9, brief: BriefSchema.parse({ nhu_cau: 'thu-lead', ten_don_vi: 'X' }), messages: [], uploads: [], docsText: '', jobId: id, siteId };
+  const s: Session = { id: sessionId, ip: '1', createdAt: NOW, turns: 9, brief: BriefV2Schema.parse({ muc_tieu_chinh: 'thu-lead', ten_don_vi: 'X', da_xac_nhan: true }), messages: [], uploads: [], docsText: '', jobId: id, siteId };
   await putJson(deps.kv, `sess:${sessionId}`, s);
   await seedSite(deps, siteId, { phone: '0912' + id, expires: '2027-01-01T00:00:00.000Z' });
   await putJson(deps.kv, `phone:0912${id}`, siteId);
@@ -134,7 +134,7 @@ describe('runDaily queue', () => {
     claude.callTool.mockImplementation(async () => {
       calls++;
       if (calls >= 2) await putJson(deps.kv, 'cost:20261108', 11e6);
-      return { input: { site: defaultSite('tpl-thu-lead', BriefSchema.parse({ ten_don_vi: 'X' }), 'x'), proposal }, usage: { input_tokens: 1, output_tokens: 1 } };
+      return { input: { site: defaultSite('tpl-thu-lead', BriefV2Schema.parse({ ten_don_vi: 'X' }), 'x'), proposal }, usage: { input_tokens: 1, output_tokens: 1 } };
     });
     const r = await runDaily(deps);
     expect(r.processed).toBe(2);
@@ -201,7 +201,7 @@ describe('runDaily abandoned jobs', () => {
   it('resumes a recent stalled unpublished job', async () => {
     const { deps } = mk();
     await seedJob(deps, 'rec', { stage: 'ai_done', startedAt: '2026-11-08T04:56:00.000Z', stageAt: '2026-11-08T04:56:00.000Z' });
-    await putJson(deps.kv, 'sitejson:demo-rec', defaultSite('tpl-thu-lead', BriefSchema.parse({ ten_don_vi: 'X' }), 'demo-rec'));
+    await putJson(deps.kv, 'sitejson:demo-rec', defaultSite('tpl-thu-lead', BriefV2Schema.parse({ ten_don_vi: 'X' }), 'demo-rec'));
     await runDaily(deps);
     expect((await loadJob(deps, 'rec'))!.stage).toBe('published');
   });

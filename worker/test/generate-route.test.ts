@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
-import { BriefSchema, defaultSite, type SiteJson } from '@sme/schema';
+import { BriefV2Schema, defaultSite, type SiteJson } from '@sme/schema';
 import { makeTestDeps, TEST_ORIGIN } from './fakes';
 import { handle } from '../src/index';
 import { getJson, putJson } from '../src/kv';
@@ -21,7 +21,7 @@ const unb64 = (s: string) => new TextDecoder().decode(Uint8Array.from(atob(s), (
 
 function okClaude(siteOver: Partial<SiteJson> = {}) {
   return { callTool: vi.fn(async () => ({
-    input: { site: { ...defaultSite('tpl-thu-lead', BriefSchema.parse({ ten_don_vi: 'HTX Mây Tre' }), 'x'), ...siteOver }, proposal },
+    input: { site: { ...defaultSite('tpl-thu-lead', BriefV2Schema.parse({ ten_don_vi: 'HTX Mây Tre' }), 'x'), ...siteOver }, proposal },
     usage,
   })) } as any;
 }
@@ -61,7 +61,7 @@ async function seedSession(deps: Deps, id: string, opts: { uploads?: number; bri
   }
   const s: Session = {
     id, ip: '1.1.1.1', createdAt: '2026-11-08T04:00:00Z', turns: 9,
-    brief: BriefSchema.parse(opts.brief ?? { nhu_cau: 'thu-lead', ten_don_vi: 'HTX Mây Tre Đan' }),
+    brief: BriefV2Schema.parse(opts.brief ?? { muc_tieu_chinh: 'thu-lead', ten_don_vi: 'HTX Mây Tre Đan', da_xac_nhan: true }),
     messages: [], uploads, docsText: '',
   };
   await putJson(deps.kv, `sess:${id}`, s);
@@ -105,6 +105,15 @@ describe('POST /api/generate', () => {
     const { res, data } = await generate(deps, { sessionId: 'sA', phone: '12345', name: 'Lan' });
     expect(res.status).toBe(400);
     expect(data.error).toMatch(/số điện thoại/i);
+  });
+
+  it('409 when the brief is not confirmed (no job, no phone reservation)', async () => {
+    const { deps } = mkDeps();
+    await seedSession(deps, 'sU', { brief: { muc_tieu_chinh: 'thu-lead', ten_don_vi: 'HTX' } });
+    const { res, data } = await generate(deps, { sessionId: 'sU', phone: '0912345678', name: 'Lan' });
+    expect(res.status).toBe(409);
+    expect(data.error).toBe('Vui lòng xác nhận thông tin trước khi tạo bản dùng thử.');
+    expect(await deps.kv.get('phone:0912345678')).toBeNull();
   });
 
   it('404 for unknown session', async () => {
