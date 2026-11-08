@@ -12,7 +12,7 @@ export type SectionType = (typeof SECTION_TYPES)[number];
 // Per-type section shapes: exactly the fields templates/_shared/render.js reads (strict: an unknown key fails validation, so a wrong field-name guess is retried instead of rendering empty).
 // These flow into the AI tool's JSON schema, so the field names here are the contract with the model.
 const title = z.string().describe('Tiêu đề mục');
-const img = z.string().describe('Đường dẫn ảnh đã tải lên (assets/...) hoặc URL https://');
+const img = z.string().describe('Đường dẫn ảnh đã tải lên (assets/...); không dùng URL ảnh bên ngoài');
 
 export const SectionSchemas = {
   about: z.object({ type: z.literal('about'), title, body: z.string(), image: img.optional() }).strict(),

@@ -24,7 +24,7 @@ function genSystem(template: TemplateId, now: Date, skeleton: SiteJson): string 
     'Bạn là chuyên gia thiết kế website cho doanh nghiệp nhỏ và hợp tác xã Việt Nam.',
     'Từ phiếu yêu cầu (brief) và nội dung tài liệu khách gửi, hãy gọi công cụ emit_package để trả về site (site.json) và analysis (phân tích: free = bản rút gọn cho khách xem miễn phí, full = bản đầy đủ).',
     `Template bắt buộc: ${template}; schemaVersion = 1. Mọi chữ hiển thị cho khách phải bằng tiếng Việt có dấu.`,
-    'Chỉ dùng ảnh trong danh sách ảnh đã tải lên (đường dẫn assets/...) hoặc URL https://; không bịa đường dẫn ảnh.',
+    'Ảnh chỉ được lấy từ danh sách ảnh đã tải lên (đường dẫn assets/...); không dùng URL ảnh bên ngoài (trang demo không hiển thị được) và không bịa đường dẫn ảnh. Không có ảnh phù hợp thì bỏ trống trường ảnh.',
     'Các mục brief trống: hãy tự đề xuất nội dung hợp lý, đừng bịa số điện thoại, địa chỉ hay chứng nhận.',
     'site phải theo ĐÚNG cấu trúc khung dưới đây: giữ nguyên các loại section, thứ tự và TÊN TRƯỜNG (ví dụ products.items[].name/desc/price/image, '
       + 'faq.items[].q/a, testimonials.items[].text/name, countdown.endsAt, about.body). Không thêm trường khác; '
@@ -37,13 +37,17 @@ function genSystem(template: TemplateId, now: Date, skeleton: SiteJson): string 
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 
-/** Recursively drops string fields that reference unknown `assets/` files or other non-https relative refs for images. */
+/**
+ * Recursively drops image references the demo cannot show: an `assets/` path that was not uploaded, and — in image-like
+ * fields (image/logo/…) — anything that is not an uploaded `assets/` path (the /d/ CSP is `img-src 'self' data: blob:`,
+ * so external URLs would only render broken). Other https fields (e.g. contact.mapEmbed) are kept.
+ */
 export function sanitizeAssets(site: SiteJson, uploads: string[]): SiteJson {
   const ok = new Set(uploads);
   const IMG_KEY = /image|logo|img|photo|avatar|thumb|src/i;
   const bad = (v: string, key: string | null): boolean => {
     if (v.startsWith('assets/')) return !ok.has(v);
-    if (key !== null && IMG_KEY.test(key)) return !/^https:\/\//i.test(v) && /\.(png|jpe?g|webp|gif|svg)(\?|$)/i.test(v) || /^(\.\.|\/|javascript:|data:|http:)/i.test(v);
+    if (key !== null && IMG_KEY.test(key)) return v !== '';
     return false;
   };
   const walk = (v: unknown, key: string | null): unknown => {
@@ -192,7 +196,7 @@ export class RevisionFailedError extends Error {
 export async function reviseContent(deps: Deps, site: SiteJson, request: string, uploads: string[]): Promise<SiteJson> {
   const system = [
     'Bạn là chuyên gia thiết kế website. Nhận site.json hiện tại và yêu cầu chỉnh sửa của khách, gọi công cụ emit_site với site.json mới đầy đủ.',
-    'Chỉ thay đổi những gì khách yêu cầu. Chữ hiển thị bằng tiếng Việt có dấu. Chỉ dùng ảnh trong danh sách đã tải lên hoặc URL https://.',
+    'Chỉ thay đổi những gì khách yêu cầu. Chữ hiển thị bằng tiếng Việt có dấu. Ảnh chỉ lấy từ danh sách đã tải lên (assets/...), không dùng URL ảnh bên ngoài.',
   ].join('\n');
   const messages: Msg[] = [{ role: 'user', content:
     `site.json hiện tại:\n${JSON.stringify(site)}\n\nẢnh đã tải lên: ${JSON.stringify(uploads)}\n\nYêu cầu của khách:\n${request.slice(0, 2000)}` }];

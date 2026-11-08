@@ -184,7 +184,7 @@ describe('generatePackage', () => {
 });
 
 describe('sanitizeAssets', () => {
-  it('drops unknown assets, keeps uploads and https URLs, recursive', () => {
+  it('drops unknown assets and every external image URL (demo CSP: img-src self), keeps uploads, recursive', () => {
     const site = goodSite({
       brand: { name: 'a', color: '#000000', logo: 'assets/1-a.jpg' },
       hero: { title: 't', subtitle: 's', cta: 'c', image: 'assets/9-khong-co.jpg' },
@@ -194,11 +194,30 @@ describe('sanitizeAssets', () => {
     const out: any = sanitizeAssets(site, ['assets/1-a.jpg']);
     expect(out.hero.image).toBeUndefined();
     expect(out.brand.logo).toBe('assets/1-a.jpg');
-    expect(out.sections[0].items[0].image).toBe('https://x.test/a.png');
+    expect(out.sections[0].items[0].image).toBeUndefined(); // https image: blocked by the demo CSP
     expect(out.sections[0].items[1].image).toBeUndefined();
     expect(out.sections[0].items[2].image).toBeUndefined();
     expect(out.sections[1].images).toEqual(['assets/1-a.jpg']);
     expect(site.hero.image).toBe('assets/9-khong-co.jpg'); // input not mutated
+  });
+  it('external images are dropped from arrays and logos; non-image https fields (mapEmbed) are kept', () => {
+    const site = goodSite({
+      brand: { name: 'a', color: '#000000', logo: 'https://cdn.test/logo.png' },
+      contact: { phone: '1', mapEmbed: 'https://www.google.com/maps/embed?pb=x' },
+      sections: [{ type: 'gallery', images: ['https://x.test/a.jpg', 'assets/1-a.jpg', 'https://x.test/b'] }],
+    }) as SiteJson;
+    const out: any = sanitizeAssets(site, ['assets/1-a.jpg']);
+    expect(out.brand.logo).toBeUndefined();
+    expect(out.contact.mapEmbed).toBe('https://www.google.com/maps/embed?pb=x');
+    expect(out.sections[0].images).toEqual(['assets/1-a.jpg']);
+  });
+  it('the generation prompt no longer offers https image URLs', async () => {
+    const claude = fake([{ site: goodSite(), analysis }]);
+    await generatePackage(makeTestDeps({ claude }), mkSession({ ten_don_vi: 'A' }), 's');
+    const sys: string = claude.callTool.mock.calls[0][0].system;
+    expect(sys).toContain('assets/');
+    expect(sys).not.toMatch(/hoặc URL https/);
+    expect(JSON.stringify(claude.callTool.mock.calls[0][0].tool.input_schema)).not.toMatch(/hoặc URL https/);
   });
 });
 
