@@ -8,7 +8,7 @@ import { errorJson, json, readJson } from '../http';
 export const DEMO_PATH = /^\/d\/([a-z0-9-]{1,64})(\/.*)?$/;
 const ASSET_FILE = /^[a-z0-9][a-z0-9._-]{0,127}$/i;
 
-export const DEMO_CSP = "default-src 'self'; img-src 'self' data: blob:; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline'; frame-ancestors 'self'";
+export const DEMO_CSP = "default-src 'self'; img-src 'self' data: blob:; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline'; frame-ancestors 'self'; frame-src https://www.google.com https://maps.google.com";
 
 const DEMO_HEADERS = { 'X-Robots-Tag': 'noindex, nofollow', 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' };
 

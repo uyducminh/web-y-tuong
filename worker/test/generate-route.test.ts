@@ -214,12 +214,12 @@ describe('POST /api/generate', () => {
     expect(sheet.append).toHaveBeenCalledTimes(1);
     const row = sheet.append.mock.calls[0][0] as any;
     expect(row).toMatchObject({ ten: 'Chị Lan', sdt: '0912345678', nhu_cau: 'thu-lead', trang_thai: 'demo', siteId,
-      link_demo: `${API}/d/${siteId}`, link_lead: `${API}/leads/${siteId}?key=${meta.leadKey}` });
-    expect(row.link_demo.endsWith(`/d/${siteId}`)).toBe(true);
+      link_demo: `${API}/d/${siteId}/`, link_lead: `${API}/leads/${siteId}?key=${meta.leadKey}` });
+    expect(row.link_demo.endsWith(`/d/${siteId}/`)).toBe(true);
     expect(row.thoi_gian).toBeTruthy();
     expect(notify.send).toHaveBeenCalledTimes(1);
     const text = notify.send.mock.calls[0][0] as string;
-    for (const s of ['Chị Lan', '0912345678', `${API}/d/${siteId}`]) expect(text).toContain(s);
+    for (const s of ['Chị Lan', '0912345678', `${API}/d/${siteId}/`]) expect(text).toContain(s);
     expectNoPublisher(publisher);
   });
 
@@ -449,7 +449,7 @@ describe('GET /api/proposal/:siteId', () => {
     const res = await handle(req('GET', `/api/proposal/${siteId}`), deps, mkCtx().ctx);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
-      proposal, site: { name: site.brand.name, url: `${API}/d/${siteId}` },
+      proposal, site: { name: site.brand.name, url: `${API}/d/${siteId}/` },
       // purchasable packages (ids for POST /api/checkout; prices are what checkout charges)
       packages: [{ id: 'co-ban', name: 'Cơ bản', priceVnd: 10_000_000, items: ['Website'] }],
       paid: false,

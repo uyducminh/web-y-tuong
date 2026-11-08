@@ -57,7 +57,7 @@ describe('GET /d/:siteId', () => {
     expect(res.headers.get('content-type')).toMatch(/^text\/html/);
     expectDemoHeaders(res);
     expect(res.headers.get('content-security-policy')).toBe(
-      "default-src 'self'; img-src 'self' data: blob:; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline'; frame-ancestors 'self'");
+      "default-src 'self'; img-src 'self' data: blob:; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline'; frame-ancestors 'self'; frame-src https://www.google.com https://maps.google.com");
     const html = await res.text();
     expect(html).toContain('<meta name="lead-endpoint" content="https://api.test">');
     expect(html).toContain('<meta name="platform-name" content="Web Làng">');
@@ -156,13 +156,29 @@ describe('GET /d/:siteId', () => {
     expect((await req(`/d/${'a'.repeat(65)}/`)).status).toBe(404);
   });
 
-  it('HEAD/other paths under /d/ are 404, never the analysis', async () => {
+  it('unknown subpaths under /d/<id>/ are 404 and never return the analysis', async () => {
     await seed();
     for (const p of [`/d/${ID}/analysis.json`, `/d/${ID}/assets/`, `/d/${ID}/x/site.json`]) {
       const res = await req(p);
       expect(res.status).toBe(404);
       expect(await res.text()).not.toContain(FULL_MARKER);
     }
+  });
+});
+
+describe('map section vs CSP', () => {
+  it('the map iframe src from site.json is allowed by the frame-src of the /d/ CSP', async () => {
+    await seed();
+    const mapEmbed = 'https://www.google.com/maps/embed?pb=!1m18';
+    const site = { ...fixture, siteId: ID, contact: { ...fixture.contact, mapEmbed }, sections: [...fixture.sections, { type: 'map', title: 'Bản đồ' }] };
+    await putJson(current.kv, `sitejson:${ID}`, site);
+    const s = await (await req(`/d/${ID}/site.json`)).json() as any;
+    expect(s.contact.mapEmbed).toBe(mapEmbed);
+    expect(s.sections.some((x: any) => x.type === 'map')).toBe(true);
+    const csp = (await req(`/d/${ID}/`)).headers.get('content-security-policy')!;
+    const frameSrc = csp.split(';').map((d) => d.trim().split(/\s+/)).find((d) => d[0] === 'frame-src')!.slice(1);
+    expect(frameSrc).toContain(new URL(mapEmbed).origin);
+    expect(frameSrc).toContain('https://maps.google.com');
   });
 });
 

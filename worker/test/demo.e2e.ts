@@ -61,3 +61,22 @@ test('expired unpaid demo shows the 410 page with the contact phone', async ({ p
   await expect(page.locator('h1')).toHaveText('Bản dùng thử đã hết hạn');
   await expect(page.locator('body')).toContainText('0912345678');
 });
+
+test('map section: the Google Maps iframe is not blocked by the /d/ CSP', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+  // No live network: answer the map embed locally; the CSP check happens before the request either way.
+  await page.route('https://www.google.com/**', (r) => r.fulfill({ status: 200, contentType: 'text/html', body: '<p>map</p>' }));
+  await page.addInitScript(() => {
+    (window as any).__csp = [];
+    document.addEventListener('securitypolicyviolation', (e) => (window as any).__csp.push(`${e.violatedDirective} ${e.blockedURI}`));
+  });
+  await seed(page, 'e2e-map-dddddd', 'tpl-gioi-thieu', fixture('htx-ca-phe'));
+  expect((await page.goto('/d/e2e-map-dddddd/'))!.status()).toBe(200);
+  const frame = page.locator('section.sec-map iframe.map-frame');
+  await expect(frame).toHaveAttribute('src', /^https:\/\/www\.google\.com\/maps\/embed/);
+  await expect.poll(() => page.frames().some((f) => f.url().startsWith('https://www.google.com/maps/embed'))).toBe(true);
+  await expect.poll(async () => page.frame({ url: /google\.com\/maps\/embed/ })?.locator('p').textContent()).toBe('map');
+  expect(await page.evaluate(() => (window as any).__csp)).toEqual([]);
+  expect(errors).toEqual([]);
+});

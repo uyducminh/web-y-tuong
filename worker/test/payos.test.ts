@@ -285,7 +285,7 @@ describe('POST /webhook/payos', () => {
     expect(await paidOf(deps, meta.siteId)).toBe(true);
     expect(sheetCalls).toEqual([[meta.siteId, { trang_thai: 'da_thanh_toan', goi: 'Cơ bản', so_tien: '10000000' }]]);
     expect(notes).toHaveLength(1);
-    for (const s of ['HTX Rau Sạch', '0912345678', 'Cơ bản', '10.000.000đ', `https://api.test/d/${meta.siteId}`]) expect(notes[0]).toContain(s);
+    for (const s of ['HTX Rau Sạch', '0912345678', 'Cơ bản', '10.000.000đ', `https://api.test/d/${meta.siteId}/`]) expect(notes[0]).toContain(s);
   });
 
   it('invalid signature → 200 {ok:true}, nothing changes', async () => {

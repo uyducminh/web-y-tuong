@@ -194,7 +194,9 @@ Sửa `worker/wrangler.toml`, mục `[vars]` (production) hoặc `[env.staging.v
 | `DAILY_CAP_USD` | Trần chi phí AI mỗi ngày; vượt thì xếp hàng, cron xử lý hôm sau | `10` |
 | `PACKAGES` | Các gói triển khai (JSON, chuỗi một dòng) | xem dưới |
 | `WEB_ORIGIN` | Địa chỉ web chính (Cloudflare Pages), dùng cho CORS | `https://sme-mvp.pages.dev` |
-| `API_BASE` | Địa chỉ chính Worker (để demo gửi lead về) | `https://sme-mvp-worker.<tài-khoản>.workers.dev` |
+| `API_BASE` | Địa chỉ chính Worker, không có `/` ở cuối. **Phải là đúng địa chỉ (origin) đang phục vụ trang demo `/d/`**: link demo, link bộ hồ sơ, nơi form gửi lead và CORS của `/lead/*` đều lấy từ đây | `https://sme-mvp-worker.<tài-khoản>.workers.dev` |
+| `PLATFORM_NAME` | Tên nền tảng trên băng rôn demo (mặc định `Web Làng`) | `Web Làng` |
+| `CONTACT_PHONE` | SĐT/Zalo hiện trên trang "Bản dùng thử đã hết hạn" | `0912345678` |
 | `PUBLISHER` | `github` hoặc `cloudflare` | `github` |
 | `ALLOW_TEST_PRICE` | `1` = bỏ kiểm tra giá tối thiểu. **Chỉ staging** | `1` |
 
@@ -219,8 +221,10 @@ Với staging, để thử thanh toán thật đặt `ALLOW_TEST_PRICE = "1"` v�
 ### 9.1 Deploy Worker
 
 ```bash
-pnpm --filter @sme/worker exec wrangler deploy --env staging
+pnpm -F @sme/worker run deploy --env staging
 ```
+
+Dùng `run deploy` (không gọi thẳng `wrangler deploy`) để bước `predeploy` chạy `scripts/embed-templates.ts`, nhúng bản template mới nhất vào Worker.
 
 In ra địa chỉ Worker, ví dụ `https://sme-mvp-worker-staging.<tài-khoản>.workers.dev`. Điền địa chỉ này vào `API_BASE` (Bước 8) và vào webhook PayOS (Bước 5), rồi deploy lại.
 

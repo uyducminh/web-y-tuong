@@ -21,7 +21,8 @@ export const assetKey = (siteId: string, path: string) => `asset:${siteId}:${pat
 /** Full Analysis (free + full). `full` must never reach an unpaid client. */
 export const analysisKey = (siteId: string) => `analysis:${siteId}`;
 
-export const demoUrl = (config: Config, siteId: string) => `${config.apiBase}/d/${siteId}`;
+/** Trailing slash: the page lives at /d/<id>/ (relative site.json/assets resolve there); /d/<id> is only a 301 to it. */
+export const demoUrl = (config: Config, siteId: string) => `${config.apiBase}/d/${siteId}/`;
 export const packageUrl = (config: Config, siteId: string) => `${config.apiBase}/package/${siteId}`;
 
 /** Seconds from now until the demo expires (KV minimum TTL is 60 s). */

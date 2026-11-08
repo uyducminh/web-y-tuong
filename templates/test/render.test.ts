@@ -67,6 +67,7 @@ describe('renderSite', () => {
   it('checkout link only if safe', () => {
     renderSite({ ...base, demo: { ...base.demo, checkoutUrl: 'https://pay.example/x' } }, root);
     expect(root.querySelector('.demo-badge a')!.getAttribute('href')).toBe('https://pay.example/x');
+    expect(root.querySelector('.demo-badge a')!.textContent).toBe('Xem bộ hồ sơ');
     renderSite({ ...base, demo: { ...base.demo, checkoutUrl: 'javascript:1' } }, root);
     expect(root.querySelector('.demo-badge a')).toBeNull();
   });
@@ -124,9 +125,9 @@ describe('renderSite', () => {
   });
   it('badge names the platform: default "Web Làng", configurable', () => {
     renderSite(base, root);
-    expect(root.querySelector('.demo-badge')!.textContent).toContain('tạo bởi Web Làng');
+    expect(root.querySelector('.demo-badge span')!.textContent).toBe('Bản dùng thử – Web Làng');
     renderSite(base, root, { platformName: 'Nền tảng X' });
-    expect(root.querySelector('.demo-badge')!.textContent).toContain('tạo bởi Nền tảng X');
+    expect(root.querySelector('.demo-badge span')!.textContent).toBe('Bản dùng thử – Nền tảng X');
   });
   it('sets brand color, title and og tags', () => {
     renderSite({ ...base, brand: { ...base.brand, color: '#112233' }, seo: { title: 'T <b>', description: 'D' } }, root);
@@ -203,7 +204,7 @@ describe('fix round 1', () => {
     document.head.innerHTML = '<meta name="platform-name" content="HTX Số">';
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => site })));
     await boot(root);
-    expect(root.querySelector('.demo-badge')!.textContent).toContain('tạo bởi HTX Số');
+    expect(root.querySelector('.demo-badge span')!.textContent).toBe('Bản dùng thử – HTX Số');
     vi.unstubAllGlobals();
     document.head.innerHTML = '';
   });
