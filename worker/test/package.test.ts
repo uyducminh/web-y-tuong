@@ -60,6 +60,17 @@ describe('GET /api/package/:siteId', () => {
     expect(body.demoUrl).toBe(`https://api.test/d/${ID}/`);
   });
 
+  it('site.name: sitejson brand.name, else the brief unit name, else SiteMeta.name (the person)', async () => {
+    await seed();
+    await putJson(current.kv, `brief:${ID}`, { ten_don_vi: '  HTX Mây Tre  ' });
+    expect((await (await req(`/api/package/${ID}`)).json<any>()).site.name).toBe('HTX Mây Tre');
+    await putJson(current.kv, `sitejson:${ID}`, { brand: { name: 'Mây Tre Đan Phú Vinh' } });
+    expect((await (await req(`/api/package/${ID}`)).json<any>()).site.name).toBe('Mây Tre Đan Phú Vinh');
+    await current.kv.delete(`sitejson:${ID}`);
+    await current.kv.delete(`brief:${ID}`);
+    expect((await (await req(`/api/package/${ID}`)).json<any>()).site.name).toBe('Shop X');
+  });
+
   it('query params are ignored (?tier=full, ?paid=1, ?full=1)', async () => {
     await seed();
     for (const q of ['?tier=full', '?paid=1&full=1', '?analysis=full']) {

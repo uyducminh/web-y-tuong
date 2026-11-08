@@ -1,7 +1,7 @@
-import type { Analysis } from '@sme/schema';
+import type { Analysis, BriefV2, SiteJson } from '@sme/schema';
 import type { Deps, SiteMeta } from '../types';
 import { getJson } from '../kv';
-import { analysisKey, demoUrl, isPaid, TRIAL_GONE, trialGone } from '../sites';
+import { analysisKey, briefKey, demoUrl, isPaid, TRIAL_GONE, trialGone } from '../sites';
 import { escapeHtml, goneHtml, notFoundHtml } from '../static/templates';
 import { PACKAGE_FILES } from '../static/templates.gen';
 import { sellablePackages } from './checkout';
@@ -60,11 +60,16 @@ export async function getPackageApi(deps: Deps, siteId: string): Promise<Respons
   const meta = await getJson<SiteMeta>(deps.kv, `site:${siteId}`);
   if (!meta) return jsonRes({ error: 'Không tìm thấy bộ hồ sơ này.' }, 404);
   if (await trialGone(deps, meta)) return jsonRes({ error: TRIAL_GONE }, 410);
-  const [paid, stored] = await Promise.all([isPaid(deps, siteId), getJson<Analysis>(deps.kv, analysisKey(siteId))]);
+  const [paid, stored, site, brief] = await Promise.all([
+    isPaid(deps, siteId), getJson<Analysis>(deps.kv, analysisKey(siteId)),
+    getJson<SiteJson>(deps.kv, `sitejson:${siteId}`), getJson<BriefV2>(deps.kv, briefKey(siteId)),
+  ]);
+  // The unit's name, not the person's (SiteMeta.name is what they typed in "Tên của bạn").
+  const name = [site?.brand?.name, brief?.ten_don_vi, meta.name].map((x) => (typeof x === 'string' ? x.trim() : '')).find(Boolean) ?? '';
   // Built field by field: never spread the stored object, so `full` cannot leak through a refactor.
   const analysis = stored && stored.free ? (paid ? { free: stored.free, full: stored.full } : { free: stored.free }) : null;
   return jsonRes({
-    site: { name: meta.name, expires: meta.expires, paid },
+    site: { name, expires: meta.expires, paid },
     demoUrl: demoUrl(deps.config, siteId),
     analysis,
     packages: sellablePackages(deps.config),
