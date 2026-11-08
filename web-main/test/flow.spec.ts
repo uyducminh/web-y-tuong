@@ -71,7 +71,7 @@ async function serveSheetJs(page: Page) {
   let n = 0;
   await page.route('https://cdnjs.cloudflare.com/**', async (route) => {
     n++;
-    await route.fulfill({ body: XLSX_JS, contentType: 'text/javascript' });
+    await route.fulfill({ body: XLSX_JS, contentType: 'text/javascript', headers: { 'Access-Control-Allow-Origin': '*' } });
   });
   return () => n;
 }

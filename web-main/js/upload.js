@@ -14,6 +14,10 @@ const PDFJS_URL = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@6.5.438/legacy/build/
 const PDFJS_WORKER = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@6.5.438/legacy/build/pdf.worker.min.mjs';
 const MAMMOTH_URL = 'https://cdn.jsdelivr.net/npm/mammoth@1.13.0/mammoth.browser.min.js';
 const SHEETJS_URL = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+// SRI = sha384 của đúng file npm (mammoth@1.13.0 mammoth.browser.min.js, xlsx@0.18.5 dist/xlsx.full.min.js); scripts/sri.test.ts
+// tính lại từ node_modules. pdf.js nạp bằng import() (module + worker) nên trình duyệt không hỗ trợ SRI cho nó.
+const MAMMOTH_SRI = 'sha384-8NWE3bZDrmRI4IePMoQaEoLhAQ1MmRMJkdNgnGiHRFanTqsFKr0TmK6aSZvFJ/PO';
+const SHEETJS_SRI = 'sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw';
 
 function isImage(file) {
   // MIME là chính; một số điện thoại gửi MIME rỗng nên xét thêm đuôi file.
@@ -96,10 +100,10 @@ export async function shrinkImage(file) {
 }
 
 let libsPromise = null;
-function loadScript(src) {
+function loadScript(src, integrity) {
   return new Promise((resolve, reject) => {
     const s = document.createElement('script');
-    s.src = src; s.async = true; s.crossOrigin = 'anonymous';
+    s.src = src; s.async = true; s.integrity = integrity; s.crossOrigin = 'anonymous';
     s.onload = resolve; s.onerror = () => reject(new Error('load'));
     document.head.append(s);
   });
@@ -109,7 +113,7 @@ export function loadDocLibs() {
   if (!libsPromise) {
     libsPromise = Promise.all([
       import(/* @vite-ignore */ PDFJS_URL).then((m) => { m.GlobalWorkerOptions.workerSrc = PDFJS_WORKER; return m; }),
-      window.mammoth ? Promise.resolve(window.mammoth) : loadScript(MAMMOTH_URL).then(() => window.mammoth),
+      window.mammoth ? Promise.resolve(window.mammoth) : loadScript(MAMMOTH_URL, MAMMOTH_SRI).then(() => window.mammoth),
     ]).then(([pdfjs, mammoth]) => ({ pdfjs, mammoth }))
       .catch((e) => { libsPromise = null; throw e; });
   }
@@ -121,7 +125,7 @@ let sheetPromise = null;
 export function loadSheetJs() {
   if (window.XLSX) return Promise.resolve(window.XLSX);
   if (!sheetPromise) {
-    sheetPromise = loadScript(SHEETJS_URL).then(() => {
+    sheetPromise = loadScript(SHEETJS_URL, SHEETJS_SRI).then(() => {
       if (!window.XLSX) throw new Error('load');
       return window.XLSX;
     }).catch(() => { sheetPromise = null; throw new Error('load'); });

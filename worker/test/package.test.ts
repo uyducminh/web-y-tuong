@@ -148,7 +148,8 @@ describe('GET /package/:siteId', () => {
     expect(res.headers.get('content-type')).toMatch(/^text\/html/);
     expectNoindexHeaders(res);
     expect(res.headers.get('content-security-policy')).toBe(PACKAGE_CSP);
-    expect(PACKAGE_CSP).toContain("script-src 'self' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net");
+    // only the two pinned library folders, never a whole CDN host
+    expect(PACKAGE_CSP).toContain("script-src 'self' https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/ https://cdn.jsdelivr.net/npm/docx@9.15.3/;");
     expect(PACKAGE_CSP).toContain("frame-src 'self'");
     expect(PACKAGE_CSP).toContain("img-src 'self' data: blob:");
     expect(PACKAGE_CSP).not.toContain('unsafe-eval');

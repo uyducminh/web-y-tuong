@@ -62,8 +62,10 @@ async function wire(page: Page, o: { failCanvas?: boolean } = {}) {
   await page.route(/^https?:\/\/(?!127\.0\.0\.1)/, async (r) => {
     const url = r.request().url();
     cdn.push(url);
-    if (url === HTML2CANVAS && !o.failCanvas) return r.fulfill({ path: nm('html2canvas/dist/html2canvas.min.js'), contentType: 'text/javascript' });
-    if (url === DOCX) return r.fulfill({ path: nm('docx/dist/index.iife.js'), contentType: 'text/javascript' });
+    // The page loads them with crossorigin=anonymous + integrity: CORS header required, bytes must match the SRI hash.
+    const cors = { 'Access-Control-Allow-Origin': '*' };
+    if (url === HTML2CANVAS && !o.failCanvas) return r.fulfill({ path: nm('html2canvas/dist/html2canvas.min.js'), contentType: 'text/javascript', headers: cors });
+    if (url === DOCX) return r.fulfill({ path: nm('docx/dist/index.iife.js'), contentType: 'text/javascript', headers: cors });
     if (url === HTML2CANVAS) return r.abort();
     errors.push(`unexpected external request ${url}`);
     return r.abort();

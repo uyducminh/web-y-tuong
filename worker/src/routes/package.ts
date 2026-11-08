@@ -12,12 +12,13 @@ export const PACKAGE_PATH = /^\/package\/([a-z0-9-]{1,64})$/;
 export const API_PACKAGE_PATH = /^\/api\/package\/([a-z0-9-]{1,64})$/;
 
 /**
- * The package page loads html2canvas (cdnjs) and docx (jsdelivr) lazily, frames the same-origin /d/<id>/ demo to
+ * The package page loads html2canvas (cdnjs) and docx (jsdelivr) lazily (pinned paths + SRI), frames the same-origin /d/<id>/ demo to
  * screenshot it, and shows blob:/data: images. No inline script.
  */
 export const PACKAGE_CSP = [
   "default-src 'self'",
-  "script-src 'self' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net",
+  // Only the two pinned library folders (each script also carries an SRI hash in package.js).
+  "script-src 'self' https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/ https://cdn.jsdelivr.net/npm/docx@9.15.3/",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
   "frame-src 'self'",

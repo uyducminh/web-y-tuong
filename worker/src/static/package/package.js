@@ -2,8 +2,12 @@
 // AN TOÀN: mọi dữ liệu hiển thị bằng textContent / setAttribute — không bao giờ dùng HTML thô.
 // html2canvas và docx chỉ được tải khi cần (lúc bắt đầu chụp ảnh / khi bấm "Tải Word").
 
+// SRI = sha384 của đúng file npm (html2canvas@1.4.1 dist/html2canvas.min.js, docx@9.15.3 dist/index.iife.js);
+// scripts/sri.test.ts tính lại từ node_modules. Đổi phiên bản thì đổi cả URL, mã SRI và CSP trong routes/package.ts.
 const HTML2CANVAS_URL = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+const HTML2CANVAS_SRI = 'sha384-ZZ1pncU3bQe8y31yfZdMFdSpttDoPmOZg2wguVK9almUodir1PghgT0eY7Mrty8H';
 const DOCX_URL = 'https://cdn.jsdelivr.net/npm/docx@9.15.3/dist/index.iife.js';
+const DOCX_SRI = 'sha384-7RQr7shIQxpY5MCxz+1WEr7c87/32cetAdWsetOYnb6IYz/H/6OcuJGOiv+L3nCj';
 const WATERMARK = 'BẢN DÙNG THỬ';
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -82,11 +86,13 @@ function icon(name) {
   return svg;
 }
 
-function loadScript(src, globalName) {
+function loadScript(src, globalName, integrity) {
   if (window[globalName]) return Promise.resolve(window[globalName]);
   return new Promise((resolve, reject) => {
     const s = document.createElement('script');
     s.src = src;
+    s.integrity = integrity;
+    s.crossOrigin = 'anonymous';
     s.async = true;
     s.onload = () => (window[globalName] ? resolve(window[globalName]) : reject(new Error(`${globalName} missing`)));
     s.onerror = () => reject(new Error(`load ${src}`));
@@ -211,7 +217,7 @@ async function captureOne(spec, html2canvas) {
 /** Chụp lần lượt điện thoại rồi máy tính; mỗi ảnh xong thì cập nhật khung tương ứng. */
 async function captureAll(slots) {
   let html2canvas;
-  try { html2canvas = await loadScript(HTML2CANVAS_URL, 'html2canvas'); }
+  try { html2canvas = await loadScript(HTML2CANVAS_URL, 'html2canvas', HTML2CANVAS_SRI); }
   catch (e) { console.warn('html2canvas', e); for (const s of SHOTS) slots[s.kind].fail(); return; }
   for (const s of SHOTS) {
     try {
@@ -394,7 +400,7 @@ function section(n, s, ...children) {
 async function dataUrlBytes(blob) { return new Uint8Array(await blob.arrayBuffer()); }
 
 async function buildDocx(m) {
-  const d = await loadScript(DOCX_URL, 'docx');
+  const d = await loadScript(DOCX_URL, 'docx', DOCX_SRI);
   const { Document, Packer, Paragraph, TextRun, HeadingLevel, ImageRun, AlignmentType } = d;
   const P = (text, o = {}) => new Paragraph({ children: [new TextRun({ text, ...o.run })], spacing: { after: 120 }, ...o.para });
   const H = (text, level) => new Paragraph({ text, heading: level, spacing: { before: 240, after: 120 } });
