@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- Địa chỉ Worker API, ví dụ https://api.example.vn (để trống = cùng tên miền) -->
+<meta name="api-base" content="">
+<!-- Turnstile site key; để trống khi chạy local (gửi token 'dev') -->
+<meta name="turnstile-sitekey" content="">
+<title>Trò chuyện – Web Làng</title>
+<script src="js/mock.js"></script>
+<link rel="stylesheet" href="css/main.css">
+<script type="module" src="js/chat.js"></script>
+</head>
+<body class="page-chat">
+<header class="chat-head">
+  <div class="weave"></div>
+  <div class="topbar-in"><a class="brand" href="index.html">Web Làng</a><span id="turns">Còn 30/30 lượt</span></div>
+  <div class="meter" id="steps"></div>
+  <p class="notice" id="notice">Bản dùng thử là công khai, vui lòng không gửi thông tin nhạy cảm.</p>
+</header>
+<main class="chat-main">
+  <div id="log" aria-live="polite">
+    <div class="msg msg-bot">
+      <p>Chào bạn! Mình sẽ hỏi lần lượt 8 bước ngắn để làm website dùng thử miễn phí cho đơn vị của bạn. Phần lớn chỉ cần bấm chọn. Trước tiên, bạn cần website để làm gì?</p>
+      <p class="muted">Có logo, ảnh sản phẩm, hồ sơ hay bảng giá Excel thì bấm “+ Tệp” để gửi kèm.</p>
+      <div class="needs">
+        <button type="button" class="btn" data-need="gioi-thieu">Giới thiệu đơn vị, sản phẩm</button>
+        <button type="button" class="btn" data-need="thu-lead">Thu thông tin khách quan tâm</button>
+        <button type="button" class="btn" data-need="ban-hang">Bán hàng, nhận đơn qua Zalo</button>
+      </div>
+    </div>
+  </div>
+  <div id="choices"></div>
+  <div class="quick" id="quick" hidden></div>
+  <p id="upload-progress" aria-live="polite" hidden></p>
+  <p class="form-error" id="chat-error" role="alert" hidden></p>
+  <section class="card gen-panel" id="gen-panel" hidden>
+    <form id="gen-form" novalidate>
+      <div class="gen-head">
+        <h2>Nhận bản dùng thử</h2>
+        <button type="button" class="close" id="gen-close" aria-label="Đóng">×</button>
+      </div>
+      <p class="muted">Để lại tên và số điện thoại để chúng tôi gửi bộ hồ sơ dùng thử và tư vấn. Mỗi số điện thoại được một bản dùng thử.</p>
+      <label for="name">Tên của bạn</label>
+      <input type="text" id="name" name="name" autocomplete="name" maxlength="100" placeholder="Ví dụ: Chị Lan">
+      <label for="phone">Số điện thoại / Zalo</label>
+      <input type="tel" id="phone" name="phone" autocomplete="tel" inputmode="tel" maxlength="20" placeholder="0912 345 678">
+      <p class="form-error" id="gen-error" role="alert" hidden></p>
+      <button type="submit" class="btn btn-primary" id="gen-submit">Gửi và tạo bản dùng thử</button>
+    </form>
+  </section>
+  <div id="ts"></div>
+</main>
+<div class="dock">
+  <div class="dock-in">
+    <form id="composer">
+      <button type="button" class="btn btn-ghost file-btn" id="file-btn" aria-label="Gửi ảnh, tài liệu hoặc bảng giá" title="Gửi ảnh (JPG, PNG, WEBP), tài liệu (PDF, Word) hoặc bảng tính (Excel, CSV)">+ Tệp</button>
+      <input type="file" id="file" class="visually-hidden" tabindex="-1" aria-hidden="true" multiple
+        accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp,.pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.xlsx,.xls,.csv,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
+      <label for="msg" class="visually-hidden">Câu trả lời của bạn</label>
+      <textarea id="msg" rows="1" maxlength="2000" placeholder="Nhập trả lời…" enterkeyhint="send"></textarea>
+      <button type="submit" class="btn btn-primary" id="send">Gửi</button>
+    </form>
+    <button type="button" class="btn" id="gen-open" aria-controls="gen-panel" aria-expanded="false" hidden>Tạo bản dùng thử</button>
+  </div>
+</div>
+</body>
+</html>
