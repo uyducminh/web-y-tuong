@@ -28,10 +28,15 @@ export async function readJson<T = any>(req: Request): Promise<T | null> {
   try { return (await req.json()) as T; } catch { return null; }
 }
 
+/** The Worker's own origin (demos are served from it at /d/), from config.apiBase; '' if unset/invalid. */
+export function workerOrigin(config: Config): string {
+  try { return new URL(config.apiBase).origin; } catch { return ''; }
+}
+
 export function withCors(res: Response, config: Config, path: string): Response {
   let origin: string | null = null;
   if (path.startsWith('/api/')) origin = config.webOrigin;
-  else if (path.startsWith('/lead/')) origin = `https://${config.ghOrg.toLowerCase()}.github.io`;
+  else if (path.startsWith('/lead/')) origin = workerOrigin(config);
   if (!origin) return res;
   const out = new Response(res.body, res);
   for (const [k, v] of Object.entries(corsHeaders(origin))) out.headers.set(k, v);

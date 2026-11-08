@@ -1,6 +1,6 @@
 import type { Deps, Env } from './types';
 import { makeDeps } from './deps';
-import { corsHeaders, errorJson, withCors } from './http';
+import { corsHeaders, errorJson, withCors, workerOrigin } from './http';
 import { createSession } from './routes/session';
 import { postChat } from './routes/chat';
 import { getBrief, postConfirm, postProducts } from './routes/brief';
@@ -13,6 +13,7 @@ import { postLead, getLeads } from './routes/leads';
 import { postCheckout } from './routes/checkout';
 import { runDaily } from './cron';
 import { postPayosWebhook } from './routes/payos-webhook';
+import { getDemo, postTestSeed } from './routes/demo';
 
 type Handler = (req: Request, deps: Deps, ctx: ExecutionContext, url: URL) => Promise<Response>;
 type Route = { method: string; path: string | RegExp; handler: Handler };
@@ -35,18 +36,23 @@ export const routes: Route[] = [
   { method: 'GET', path: /^\/leads\/[A-Za-z0-9-]{1,64}$/, handler: (req, deps, _ctx, url) => getLeads(req, deps, url.pathname.split('/')[2], url) },
   { method: 'POST', path: '/api/checkout', handler: (req, deps) => postCheckout(req, deps) },
   { method: 'POST', path: '/webhook/payos', handler: (req, deps) => postPayosWebhook(req, deps) },
+  { method: 'GET', path: /^\/d\//, handler: (_req, deps, _ctx, url) => getDemo(deps, url.pathname) },
 ];
+
+/** e2e only: registered ONLY when env ALLOW_TEST_SEED === '1' (config.allowTestSeed); never set in wrangler.toml. */
+const testSeedRoute: Route = { method: 'POST', path: '/__test/seed', handler: (req, deps) => postTestSeed(req, deps) };
 
 export async function handle(req: Request, deps: Deps, ctx: ExecutionContext): Promise<Response> {
   const url = new URL(req.url);
   const path = url.pathname;
   if (req.method === 'OPTIONS') {
-    const origin = path.startsWith('/lead/') ? `https://${deps.config.ghOrg.toLowerCase()}.github.io` : deps.config.webOrigin;
+    const origin = path.startsWith('/lead/') ? workerOrigin(deps.config) : deps.config.webOrigin;
     return new Response(null, { status: 204, headers: corsHeaders(origin) });
   }
   let res: Response;
   try {
-    const r = routes.find((x) => x.method === req.method && (typeof x.path === 'string' ? x.path === path : x.path.test(path)));
+    const table = deps.config.allowTestSeed ? [...routes, testSeedRoute] : routes;
+    const r = table.find((x) => x.method === req.method && (typeof x.path === 'string' ? x.path === path : x.path.test(path)));
     res = r ? await r.handler(req, deps, ctx, url) : errorJson(404, 'Không tìm thấy đường dẫn này.');
   } catch (e) {
     console.error(e);

@@ -10,6 +10,9 @@ id = "REPLACE_WITH_KV_NAMESPACE_ID"
 [vars]
 WEB_ORIGIN = "https://example.pages.dev"
 GH_ORG = "sme-demos"
+PLATFORM_NAME = "Web Làng"
+CONTACT_PHONE = ""   # SĐT/Zalo hiện trên trang "Bản dùng thử đã hết hạn" (/d/)
+# KHÔNG BAO GIỜ đặt ALLOW_TEST_SEED ở đây (kể cả staging): route seed KV chỉ dành cho e2e cục bộ.
 
 [triggers]
 crons = ["0 3 * * *"]
@@ -27,6 +30,8 @@ id = "REPLACE_WITH_STAGING_KV_NAMESPACE_ID"
 [env.staging.vars]
 WEB_ORIGIN = "https://sme-mvp-staging.pages.dev"
 GH_ORG = "sme-demos-staging"
+PLATFORM_NAME = "Web Làng"
+CONTACT_PHONE = ""
 ALLOW_TEST_PRICE = "1"   # CHỈ staging: cho phép gói giá thấp (vd 2.000đ) để thử thanh toán thật
 # API_BASE = "https://sme-mvp-worker-staging.<tài-khoản>.workers.dev"   # điền sau khi biết URL Worker
 

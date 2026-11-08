@@ -8,6 +8,9 @@ export type Config = {
   dailyCapUsd: number;
   packages: { id: string; name: string; priceVnd: number; items: string[] }[];
   allowTestPrice: boolean; publisher: 'github' | 'cloudflare'; apiBase: string;
+  /** Shown on the 410 "trial expired" page. */ contactPhone: string;
+  /** `<meta name=platform-name>` on /d/ (default "Web Làng"). */ platformName: string;
+  /** Test-only KV seed route (ALLOW_TEST_SEED=1). Never set in wrangler.toml. */ allowTestSeed: boolean;
 };
 
 export interface ClaudeClient {
@@ -66,6 +69,7 @@ export type Env = {
   WEB_ORIGIN?: string; GH_ORG?: string; CHAT_MODEL?: string; GEN_MODEL?: string;
   PRICE_IN_PER_MTOK?: string; PRICE_OUT_PER_MTOK?: string; DAILY_CAP_USD?: string;
   PACKAGES?: string; ALLOW_TEST_PRICE?: string; PUBLISHER?: string; API_BASE?: string;
+  CONTACT_PHONE?: string; PLATFORM_NAME?: string; ALLOW_TEST_SEED?: string;
   TURNSTILE_SECRET?: string;
   // GitHub App (secrets except GH_ORG): used when PUBLISHER=github
   GH_APP_ID?: string; GH_APP_PRIVATE_KEY?: string; GH_INSTALLATION_ID?: string;
