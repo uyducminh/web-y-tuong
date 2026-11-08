@@ -2,6 +2,7 @@ import { mergeBriefV2, stepState, STEP_LABELS, type BriefV2 } from '@sme/schema'
 import type { Deps, Session } from '../types';
 import { errorJson, json, readJson } from '../http';
 import { getJson, putJson } from '../kv';
+import { MAX_TURNS } from '../ai/prompts';
 
 const TTL = 7 * 24 * 3600;
 export const MAX_PRODUCTS = 60;
@@ -19,6 +20,29 @@ export async function getBrief(deps: Deps, sessionId: string): Promise<Response>
   const s = await getJson<Session>(deps.kv, `sess:${sessionId}`);
   if (!s) return errorJson(404, NO_SESSION);
   return json({ brief: s.brief, ...briefView(s.brief) });
+}
+
+const CONTACT_PATH = 'lien_he.phone|zalo';
+export const UNKNOWN_TEXT = 'Chưa rõ – đội ngũ sẽ đề xuất';
+const DEFAULTS: Record<string, (b: BriefV2) => unknown> = {
+  ten_don_vi: () => UNKNOWN_TEXT, nganh: () => UNKNOWN_TEXT, dia_phuong: () => UNKNOWN_TEXT,
+  diem_khac_biet: () => UNKNOWN_TEXT, khach_hang_muc_tieu: () => UNKNOWN_TEXT,
+  loai_hinh: () => 'khac', cam_giac: () => 'hien-dai', muc_tieu_chinh: () => 'gioi-thieu', hanh_dong_mong_muon: () => 'zalo',
+  san_pham: (b) => [{ ten: b.ten_don_vi?.trim() || 'Sản phẩm chính' }],
+};
+
+function withDefaults(b: BriefV2, missing: string[]): BriefV2 {
+  const patch: Record<string, unknown> = {};
+  const auto: string[] = [];
+  for (const k of missing) {
+    const d = DEFAULTS[k];
+    if (!d) continue;
+    patch[k] = d(b);
+    auto.push(k);
+  }
+  if (!auto.length) return b;
+  const merged = mergeBriefV2(b, patch);
+  return { ...merged, meta: { ...merged.meta, auto: [...new Set([...(b.meta?.auto ?? []), ...auto])] } };
 }
 
 /** Only `phone` / `zalo` (non-empty strings) are taken from the confirm form. */
@@ -44,7 +68,14 @@ export async function postConfirm(req: Request, deps: Deps): Promise<Response> {
     s.brief = mergeBriefV2(s.brief, { lien_he: contact });
     await putJson(deps.kv, `sess:${s.id}`, s, TTL);
   }
-  const st = stepState(s.brief);
+  let st = stepState(s.brief);
+  // Turn 30 (chat locked): a missing required field must not trap the customer — fill neutral defaults the team
+  // will refine, recorded in meta.auto. Contact is never defaulted.
+  if (!st.canConfirm && s.turns >= MAX_TURNS && !st.missing.includes(CONTACT_PATH)) {
+    s.brief = withDefaults(s.brief, st.missing);
+    await putJson(deps.kv, `sess:${s.id}`, s, TTL);
+    st = stepState(s.brief);
+  }
   if (!st.canConfirm) return errorJson(409, 'Còn thiếu một số thông tin bắt buộc. Vui lòng bổ sung trước khi xác nhận.', { missing: st.missing });
   s.brief = { ...s.brief, da_xac_nhan: true };
   await putJson(deps.kv, `sess:${s.id}`, s, TTL);

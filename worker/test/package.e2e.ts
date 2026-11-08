@@ -169,6 +169,63 @@ test('checkout: "Chọn gói" posts /api/checkout and goes to checkoutUrl', asyn
   expect(body).toEqual({ siteId: id, packageId: 'co-ban' });
 });
 
+test('revise box: only with the owner token (#s=), hash removed, request sent, screenshots retaken', async ({ page }) => {
+  const id = 'e2e-pkg-rev001';
+  const { errors } = await wire(page);
+  await seed(page, id);
+  const demoLoads: string[] = [];
+  page.on('request', (r) => { if (r.url().endsWith(`/d/${id}/`)) demoLoads.push(r.url()); });
+  const bodies: any[] = [];
+  await page.route('**/api/revise', async (r) => {
+    bodies.push(r.request().postDataJSON());
+    await r.fulfill({ json: { jobId: 'j2', id: 'j2', siteId: id, state: 'ready', revisionsLeft: 2 } });
+  });
+  await page.goto(`/package/${id}#s=sess-owner-1`);
+  const box = page.locator('#sua-website');
+  await expect(box).toBeVisible();
+  await expect.poll(() => page.evaluate(() => location.hash)).toBe('');
+  await expect(page.getByRole('link', { name: 'Tải ảnh máy tính' })).toBeVisible({ timeout: 20_000 });
+  expect(demoLoads).toHaveLength(2);
+
+  await page.getByLabel('Bạn muốn sửa gì trên website mẫu?').fill('Đổi màu chủ đạo sang xanh lá');
+  await page.getByRole('button', { name: 'Gửi yêu cầu sửa' }).click();
+  await expect(box).toContainText('Còn 2 lượt sửa');
+  expect(bodies).toEqual([{ siteId: id, sessionId: 'sess-owner-1', request: 'Đổi màu chủ đạo sang xanh lá' }]);
+  await expect.poll(() => demoLoads.length, { timeout: 20_000 }).toBe(4); // both screenshots taken again
+  await expect(page.getByRole('link', { name: 'Tải ảnh máy tính' })).toBeVisible({ timeout: 20_000 });
+
+  // the token survives a reload without the hash (kept in this tab's sessionStorage)
+  await page.reload();
+  await expect(page.locator('#sua-website')).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test('revise box: absent without a token; 409/403 answers are shown in Vietnamese', async ({ page }) => {
+  const id = 'e2e-pkg-rev002';
+  await wire(page);
+  await seed(page, id);
+  await page.goto(`/package/${id}`);
+  await expect(page.locator('.cover h1')).toBeVisible();
+  await expect(page.locator('#sua-website')).toHaveCount(0);
+
+  let status = 409;
+  await page.route('**/api/revise', (r) => r.fulfill({ status, json: status === 409
+    ? { error: 'Bạn đã dùng hết 3 lượt sửa bản dùng thử.' } : { error: 'Bạn không có quyền sửa bản dùng thử này.' } }));
+  await page.goto('about:blank'); // a hash-only change would not reload the page
+  await page.goto(`/package/${id}#s=sess-x`);
+  await page.getByLabel('Bạn muốn sửa gì trên website mẫu?').fill('Thêm giờ mở cửa');
+  await page.getByRole('button', { name: 'Gửi yêu cầu sửa' }).click();
+  await expect(page.locator('#sua-website')).toContainText('dùng hết 3 lượt sửa');
+  await expect(page.getByRole('button', { name: 'Gửi yêu cầu sửa' })).toBeDisabled();
+
+  status = 403;
+  await page.goto('about:blank');
+  await page.goto(`/package/${id}#s=sess-y`);
+  await page.getByLabel('Bạn muốn sửa gì trên website mẫu?').fill('Thêm giờ mở cửa');
+  await page.getByRole('button', { name: 'Gửi yêu cầu sửa' }).click();
+  await expect(page.locator('#sua-website')).toContainText('không có quyền');
+});
+
 test('expired package page → 410', async ({ page }) => {
   const id = 'e2e-pkg-ffffff';
   await seed(page, id);

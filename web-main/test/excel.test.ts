@@ -15,6 +15,13 @@ describe('parsePrice', () => {
     expect(parsePrice('liên hệ')).toBeUndefined();
     expect(parsePrice('')).toBeUndefined();
   });
+  it('takes the FIRST number group of a range', () => {
+    expect(parsePrice('180.000 - 200.000đ')).toBe(180000);
+    expect(parsePrice('Từ 50.000đ đến 70.000đ')).toBe(50000);
+    expect(parsePrice('1,2 - 1,5 triệu')).toBe(1200000);
+    expect(parsePrice('1,2 triệu')).toBe(1200000);
+    expect(parsePrice('Giá: 1.250.000 VNĐ/thùng 12 chai')).toBe(1250000);
+  });
 });
 
 describe('parseSheet', () => {
@@ -31,6 +38,22 @@ describe('parseSheet', () => {
     expect(text).not.toMatch(/\n\n/);
   });
 
+  it('a title row "DANH SÁCH SẢN PHẨM" above the header is not taken as the header', () => {
+    const { products } = parseSheet([['DANH SÁCH SẢN PHẨM'], ['Tên sản phẩm', 'Giá'], ['Mật ong rừng', '250.000đ']]);
+    expect(products).toEqual([{ ten: 'Mật ong rừng', gia: 250000 }]);
+  });
+  it('a title "Tên đơn vị: HTX Cầu Đất" is skipped in favour of the row with both name and price', () => {
+    const { products } = parseSheet([['Tên đơn vị: HTX Cầu Đất'], [], ['Mặt hàng', 'Đơn giá'], ['Cà phê bột', '120.000']]);
+    expect(products).toEqual([{ ten: 'Cà phê bột', gia: 120000 }]);
+  });
+  it('header "Mã SP | Tên sản phẩm | Giá": the name column is "Tên sản phẩm", not the code', () => {
+    const { products } = parseSheet([['Mã SP', 'Tên sản phẩm', 'Giá'], ['SP01', 'Gạo ST25', '35.000đ'], ['SP02', 'Nếp cái hoa vàng', '40.000đ']]);
+    expect(products).toEqual([{ ten: 'Gạo ST25', gia: 35000 }, { ten: 'Nếp cái hoa vàng', gia: 40000 }]);
+  });
+  it('"STT | Sản phẩm | Mã sản phẩm | Giá bán": prefers a "tên" cell, else first non-code name cell', () => {
+    const { products } = parseSheet([['STT', 'Sản phẩm', 'Mã sản phẩm', 'Giá bán'], [1, 'Trà xanh', 'T01', '30k']]);
+    expect(products).toEqual([{ ten: 'Trà xanh', gia: 30000 }]);
+  });
   it('70 rows → 60 products', () => {
     const rows = [['Mặt hàng', 'Giá'], ...Array.from({ length: 70 }, (_, i) => [`Sản phẩm số ${i + 1}`, 10000 + i])];
     const { products } = parseSheet(rows);

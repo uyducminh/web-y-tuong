@@ -11,6 +11,23 @@ const app = document.getElementById('app');
 const stage = document.getElementById('capture-stage');
 const siteId = (/^\/package\/([a-z0-9-]{1,64})$/.exec(location.pathname) || [])[1] || '';
 const platform = (document.querySelector('meta[name="platform-name"]')?.getAttribute('content') || '').trim() || 'Web Làng';
+const MAX_REVISIONS = 3;
+
+/**
+ * Mã chủ phiên (sessionId) do trang trạng thái gắn vào #s=… khi chuyển sang đây. Đọc MỘT lần, cất vào sessionStorage
+ * của tab này rồi xoá khỏi thanh địa chỉ (để khách có chia sẻ link cũng không lộ). Có mã thì mới hiện ô "Sửa".
+ */
+function ownerToken() {
+  const key = `pkg.s.${siteId}`;
+  const m = /^#s=([A-Za-z0-9_-]{1,128})$/.exec(location.hash);
+  if (m) {
+    try { sessionStorage.setItem(key, m[1]); } catch { /* bị chặn: vẫn dùng được trong lần mở này */ }
+    try { history.replaceState(null, '', location.pathname + location.search); } catch { /* bỏ qua */ }
+    return m[1];
+  }
+  try { return sessionStorage.getItem(key) || ''; } catch { return ''; }
+}
+const owner = siteId ? ownerToken() : '';
 
 // ---------- tiện ích DOM ----------
 
@@ -217,8 +234,15 @@ function shotSlot(spec, demo) {
   const fig = h('figure', { class: `shot shot-${spec.kind}`, 'aria-busy': 'true' },
     h('div', { class: 'shot-frame' }, chrome, screen),
     h('figcaption', {}, h('span', { class: 'shot-label' }, icon(spec.kind === 'mobile' ? 'phone' : 'desktop'), h('span', { text: `Trên ${spec.label.toLowerCase()}` })), actions));
+  const waitScreen = () => [h('div', { class: 'loom loom-sm', 'aria-hidden': 'true' }), h('p', { class: 'shot-wait', text: 'Đang chụp lại giao diện…' })];
   return {
     el: fig,
+    reset() {
+      fig.setAttribute('aria-busy', 'true');
+      fig.classList.remove('is-failed');
+      screen.replaceChildren(...waitScreen());
+      actions.replaceChildren();
+    },
     done(shot) {
       fig.removeAttribute('aria-busy');
       screen.replaceChildren(h('img', { src: shot.url, alt: `Giao diện website mẫu trên ${spec.label.toLowerCase()}`, width: String(Math.round(shot.width / shot.scale)), height: String(Math.round(shot.height / shot.scale)) }));
@@ -430,6 +454,62 @@ async function buildDocx(m) {
   return Packer.toBlob(doc);
 }
 
+// ---------- sửa website mẫu (chỉ chủ phiên) ----------
+
+const REVISE_ERRORS = {
+  403: 'Bạn không có quyền sửa bản dùng thử này. Hãy mở lại link từ trang trò chuyện trên máy đã tạo bản dùng thử.',
+  409: `Bạn đã dùng hết ${MAX_REVISIONS} lượt sửa bản dùng thử.`,
+  410: 'Bản dùng thử đã hết hạn nên không sửa được nữa.',
+  422: 'Chưa áp dụng được yêu cầu sửa này. Bạn hãy diễn đạt lại ngắn gọn hơn; lượt sửa chưa bị tính.',
+};
+
+/** onRevised(): gọi sau khi sửa xong để chụp lại ảnh giao diện. */
+function reviseBox(onRevised) {
+  const area = h('textarea', { id: 'revise-text', rows: '3', maxlength: '2000', placeholder: 'Ví dụ: đổi màu chủ đạo sang xanh lá, thêm giờ mở cửa 7h–17h' });
+  const left = h('p', { class: 'revise-left', text: `Mỗi bản dùng thử được sửa tối đa ${MAX_REVISIONS} lượt.` });
+  const msg = h('p', { class: 'revise-msg', role: 'status' });
+  const btn = h('button', { type: 'submit', class: 'btn btn-primary', text: 'Gửi yêu cầu sửa' });
+  const form = h('form', { class: 'revise', id: 'sua-website', novalidate: true, 'aria-labelledby': 'revise-title' },
+    h('h3', { id: 'revise-title', text: 'Sửa website mẫu' }),
+    left,
+    h('label', { for: 'revise-text', text: 'Bạn muốn sửa gì trên website mẫu?' }),
+    area, msg, btn);
+  let done = false;
+  const say = (text, bad) => { msg.textContent = text; msg.classList.toggle('is-error', !!bad); };
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (done || btn.disabled) return;
+    const request = area.value.trim();
+    if (!request) { say('Vui lòng nhập nội dung bạn muốn sửa.', true); area.focus(); return; }
+    btn.disabled = true;
+    btn.textContent = 'Đang sửa… (khoảng 1 phút)';
+    say('');
+    let res = null; let data = {};
+    try {
+      res = await fetch('/api/revise', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ siteId, sessionId: owner, request }) });
+      data = await res.json().catch(() => ({}));
+    } catch { res = null; }
+    btn.textContent = 'Gửi yêu cầu sửa';
+    if (res && res.ok) {
+      const n = Number.isInteger(data?.revisionsLeft) ? Math.max(0, data.revisionsLeft) : null;
+      area.value = '';
+      if (n !== null) left.textContent = n > 0 ? `Còn ${n} lượt sửa` : 'Đã dùng hết lượt sửa';
+      say('Đã sửa xong website mẫu. Ảnh giao diện đang được chụp lại.');
+      if (n === 0) { done = true; area.disabled = true; } else btn.disabled = false;
+      onRevised();
+      return;
+    }
+    const status = res ? res.status : 0;
+    const text = str(data?.error) || REVISE_ERRORS[status]
+      || (status ? 'Chưa sửa được bản dùng thử lúc này. Vui lòng thử lại sau ít phút.' : 'Không kết nối được máy chủ. Vui lòng kiểm tra mạng và thử lại.');
+    say(text, true);
+    if (status === 409 && /hết/.test(text)) { done = true; area.disabled = true; left.textContent = 'Đã dùng hết lượt sửa'; return; }
+    if (status === 403 || status === 410) { done = true; area.disabled = true; return; }
+    btn.disabled = false;
+  });
+  return form;
+}
+
 // ---------- dựng trang ----------
 
 function fail(text) {
@@ -508,7 +588,8 @@ function render(data) {
     section(1, SECTIONS[0],
       h('p', { class: 'sec-lead' }, h('span', { text: 'Ảnh chụp trực tiếp từ website mẫu, có đóng dấu "BẢN DÙNG THỬ". ' }),
         h('span', { class: 'no-print', text: 'Bấm nút dưới mỗi ảnh để tải về máy.' })),
-      h('div', { class: 'shots' }, slots.mobile.el, slots.desktop.el)),
+      h('div', { class: 'shots' }, slots.mobile.el, slots.desktop.el),
+      owner && !m.paid ? reviseBox(recapture) : null),
     section(2, SECTIONS[1],
       m.analysis.length ? h('div', { class: 'a-grid' }, m.analysis.map(block)) : h('p', { class: 'muted', text: 'Bản phân tích đang được chuẩn bị. Vui lòng quay lại sau ít phút.' }),
       m.detail ? h('div', { class: 'a-grid a-detail' }, h('h3', { class: 'a-detail-title', text: 'Phần chi tiết' }), m.detail.map(block)) : lockedPanel()),
@@ -518,6 +599,19 @@ function render(data) {
 
   app.replaceChildren(printCover, printToc, cover, doc);
   capturePromise.p = captureAll(slots);
+
+  /** Sau khi sửa: chụp lại cả hai ảnh từ /d/<id>/ (đợi lượt chụp trước xong). */
+  function recapture() {
+    const prev = capturePromise.p || Promise.resolve();
+    capturePromise.p = prev.catch(() => {}).then(() => {
+      for (const s of SHOTS) {
+        if (captured[s.kind]) URL.revokeObjectURL(captured[s.kind].url);
+        delete captured[s.kind];
+        slots[s.kind].reset();
+      }
+      return captureAll(slots);
+    });
+  }
 }
 
 if (!siteId) fail('Đường dẫn không đúng. Vui lòng mở lại link bộ hồ sơ.');

@@ -341,7 +341,7 @@ genForm.addEventListener('submit', async (e) => {
 
   const r = await api('/api/generate', { json: { sessionId, phone, name } });
   if (r.ok && r.data.jobId) {
-    saveSession({ jobId: r.data.jobId, revisionsLeft: 3 });
+    saveSession({ jobId: r.data.jobId });
     location.href = `status.html?job=${encodeURIComponent(r.data.jobId)}`;
     return;
   }

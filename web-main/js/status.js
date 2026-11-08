@@ -98,9 +98,13 @@ function ready(job) {
   }
   if (ticker) clearInterval(ticker);
   const s = loadSession();
-  if (s.sessionId && s.jobId === jobId) saveSession({ siteId: job.siteId });
-  const fallback = /^[a-z0-9-]{1,64}$/.test(job.siteId || '') ? `${API_BASE}/package/${job.siteId}` : 'index.html';
-  location.href = safeUrl(job.url) || fallback;
+  const owner = !!s.sessionId && s.jobId === jobId;
+  if (owner) saveSession({ siteId: job.siteId });
+  const fallback = /^[a-z0-9-]{1,64}$/.test(job.siteId || '') ? `${API_BASE}/package/${job.siteId}` : '';
+  const target = safeUrl(job.url) || fallback;
+  if (!target) { location.href = 'index.html'; return; }
+  // Chủ phiên: mang sessionId trong #hash (không gửi lên máy chủ) để trang bộ hồ sơ hiện ô "Sửa website mẫu".
+  location.href = owner ? `${target.replace(/#.*$/, '')}#s=${encodeURIComponent(s.sessionId)}` : target;
 }
 
 /** Kết thúc nếu job đã xong; trả true khi đã xử lý. */

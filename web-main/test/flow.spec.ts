@@ -265,6 +265,9 @@ test('xác nhận: form điền sẵn SĐT từ phiếu, gọi confirm (kèm lie
   expect(gens).toHaveLength(1);
   expect(gens[0].at).toBeGreaterThanOrEqual(conf[0].done!);
   expect(gens[0].body).toEqual({ sessionId: 'sess-1', phone: '0912345679', name: 'Chị Lan' });
+  const stored = await page.evaluate(() => JSON.parse(sessionStorage.getItem('sme.session') || '{}'));
+  expect(stored).toMatchObject({ sessionId: 'sess-1', jobId: 'job1' });
+  expect(stored.revisionsLeft).toBeUndefined();
 });
 
 test('xác nhận bị 409 (thiếu mục): báo lỗi tiếng Việt, không gọi generate', async ({ page }) => {
@@ -493,6 +496,7 @@ test('ảnh được thu nhỏ và mã hoá lại trên trình duyệt: JPEG nh�
 const WAIT_STEPS = ['Đang phân tích ngành nghề và khách hàng', 'Đang viết nội dung website', 'Đang dựng giao diện', 'Đang soạn bản phân tích'];
 
 test('trang trạng thái: 4 bước chờ có dấu tích, thanh tiến độ, rồi chuyển tới trang bộ hồ sơ khi ready', async ({ page }) => {
+  await ownSession(page, { sessionId: 'sess-1', jobId: 'job1' });
   await page.route('http://api.test/**', (route) => route.fulfill({ contentType: 'text/html; charset=utf-8', body: '<h1>Bộ hồ sơ dùng thử</h1>' }));
   await page.clock.install();
   const calls = await mockApi(page, {
@@ -511,7 +515,8 @@ test('trang trạng thái: 4 bước chờ có dấu tích, thanh tiến độ, 
   await page.clock.runFor(30_000);
   await expect(items.nth(0)).toHaveClass(/is-done/);
   await page.clock.resume();
-  await page.waitForURL('http://api.test/package/x', { timeout: 10_000 });
+  // the owner's session id travels in the hash (never sent to the server) so the package page can show "Sửa"
+  await page.waitForURL('http://api.test/package/x#s=sess-1', { timeout: 10_000 });
   await expect(page.getByRole('heading', { name: 'Bộ hồ sơ dùng thử' })).toBeVisible();
   expect(calls.filter((c) => c.path === '/api/jobs/job1/run').length).toBe(3);
 });
@@ -526,7 +531,8 @@ test('trang trạng thái tự chạy từng bước qua POST /api/jobs/:id/run 
       : { id: 'job1', siteId: 'demo-a', state: 'ready', url: 'http://api.test/package/demo-a' } }),
   });
   await page.goto('/status.html?job=job1');
-  await page.waitForURL('http://api.test/package/demo-a', { timeout: 15_000 });
+  await page.waitForURL('http://api.test/package/demo-a', { timeout: 15_000 }); // not the owner's browser: no #s=
+  expect(new URL(page.url()).hash).toBe('');
   const runs = calls.filter((c) => c.path === '/api/jobs/job1/run');
   expect(runs).toHaveLength(3);
   for (const r of runs) expect(r.method).toBe('POST');

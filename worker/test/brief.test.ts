@@ -13,8 +13,8 @@ const FULL = { ten_don_vi: 'HTX A', loai_hinh: 'htx', nganh: 'nông sản', dia_
   diem_khac_biet: 'OCOP', khach_hang_muc_tieu: 'quán', muc_tieu_chinh: 'ban-hang', hanh_dong_mong_muon: 'zalo', cam_giac: 'moc-mac',
   meta: { askedOptional: ['tham_khao', 'tai_lieu'] } };
 
-async function seed(deps: ReturnType<typeof makeTestDeps>, brief: any = {}) {
-  const s = { id: 's1', ip: '1.1.1.1', createdAt: '2026-11-08T00:00:00Z', turns: 0, brief, messages: [], uploads: [], docsText: '' } as Session;
+async function seed(deps: ReturnType<typeof makeTestDeps>, brief: any = {}, turns = 0) {
+  const s = { id: 's1', ip: '1.1.1.1', createdAt: '2026-11-08T00:00:00Z', turns, brief, messages: [], uploads: [], docsText: '' } as Session;
   await putJson(deps.kv, 'sess:s1', s, 3600);
 }
 const load = (deps: any) => getJson<Session>(deps.kv, 'sess:s1');
@@ -80,6 +80,53 @@ describe('POST /api/brief/confirm', () => {
     const b = (await load(deps))!.brief;
     expect(b.lien_he).toEqual({ phone: '0912345678' });
     expect(b.da_xac_nhan).toBeFalsy();
+  });
+  it('turn 30: missing required fields (not contact) get neutral defaults recorded in meta.auto, then confirm', async () => {
+    const deps = makeTestDeps();
+    await seed(deps, { ten_don_vi: 'HTX Cầu Đất', nganh: 'cà phê', meta: { askedOptional: ['tham_khao'], auto: ['x'] } }, 30);
+    const r = await handle(req('POST', '/api/brief/confirm', { sessionId: 's1', lien_he: { phone: '0912345678' } }), deps, ctx);
+    expect(r.status).toBe(200);
+    const b = (await load(deps))!.brief;
+    expect(b.da_xac_nhan).toBe(true);
+    expect(b.ten_don_vi).toBe('HTX Cầu Đất'); // existing values kept
+    expect(b.nganh).toBe('cà phê');
+    expect(b.loai_hinh).toBe('khac');
+    expect(b.cam_giac).toBe('hien-dai');
+    expect(b.muc_tieu_chinh).toBe('gioi-thieu');
+    expect(b.hanh_dong_mong_muon).toBe('zalo');
+    expect(b.dia_phuong).toBe('Chưa rõ – đội ngũ sẽ đề xuất');
+    expect(b.diem_khac_biet).toBe('Chưa rõ – đội ngũ sẽ đề xuất');
+    expect(b.khach_hang_muc_tieu).toBe('Chưa rõ – đội ngũ sẽ đề xuất');
+    expect(b.san_pham).toEqual([{ ten: 'HTX Cầu Đất' }]);
+    expect(b.meta?.askedOptional).toEqual(['tham_khao']);
+    expect([...(b.meta?.auto ?? [])].sort()).toEqual(['cam_giac', 'dia_phuong', 'diem_khac_biet', 'hanh_dong_mong_muon',
+      'khach_hang_muc_tieu', 'loai_hinh', 'muc_tieu_chinh', 'san_pham', 'x'].sort());
+  });
+  it('turn 30 without any name: san_pham default is "Sản phẩm chính"', async () => {
+    const deps = makeTestDeps();
+    await seed(deps, {}, 30);
+    const r = await handle(req('POST', '/api/brief/confirm', { sessionId: 's1', lien_he: { zalo: '0912345678' } }), deps, ctx);
+    expect(r.status).toBe(200);
+    const b = (await load(deps))!.brief;
+    expect(b.san_pham).toEqual([{ ten: 'Sản phẩm chính' }]);
+    expect(b.ten_don_vi).toBe('Chưa rõ – đội ngũ sẽ đề xuất');
+  });
+  it('turn 30 but contact missing → still 409, nothing auto-filled', async () => {
+    const deps = makeTestDeps();
+    await seed(deps, { ten_don_vi: 'HTX A' }, 30);
+    const r = await handle(req('POST', '/api/brief/confirm', { sessionId: 's1' }), deps, ctx);
+    expect(r.status).toBe(409);
+    expect(((await r.json()) as any).missing).toContain('lien_he.phone|zalo');
+    const b = (await load(deps))!.brief;
+    expect(b.cam_giac).toBeUndefined();
+    expect(b.meta?.auto).toBeUndefined();
+  });
+  it('before turn 30, missing fields are NOT auto-filled (409)', async () => {
+    const deps = makeTestDeps();
+    await seed(deps, { ten_don_vi: 'HTX A' }, 29);
+    const r = await handle(req('POST', '/api/brief/confirm', { sessionId: 's1', lien_he: { phone: '0912345678' } }), deps, ctx);
+    expect(r.status).toBe(409);
+    expect((await load(deps))!.brief.cam_giac).toBeUndefined();
   });
   it('400 bad body, 404 unknown session', async () => {
     const deps = makeTestDeps();

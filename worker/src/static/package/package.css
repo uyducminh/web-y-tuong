@@ -209,7 +209,27 @@ p { margin: 0 0 1em; }
 
 /* ---------- bản in (Tải PDF) ---------- */
 @page { size: A4; margin: 16mm 15mm; }
+/* ---------- sửa website mẫu (chỉ chủ phiên) ---------- */
+.revise {
+  margin-top: 2rem; max-width: 40rem; padding: 1.1rem 1.2rem 1.25rem;
+  background: var(--surface); border: 1px solid var(--line); border-left: 6px solid var(--nghe); border-radius: var(--radius);
+}
+.revise h3 { margin-bottom: .25rem; font-size: 1.15rem; }
+.revise-left { margin: 0 0 .75rem; color: var(--ink-soft); font-weight: 600; }
+.revise label { display: block; font-weight: 700; margin-bottom: .35rem; }
+.revise textarea {
+  width: 100%; min-height: 6rem; padding: .75rem .9rem; font: inherit; color: inherit; resize: vertical;
+  background: var(--surface); border: 2px solid var(--line); border-radius: var(--radius);
+}
+.revise textarea:focus { border-color: var(--cham); outline: none; box-shadow: 0 0 0 3px rgba(35, 58, 115, .18); }
+.revise textarea:disabled { background: #eceee7; }
+.revise-msg { margin: .6rem 0 0; color: var(--la); font-weight: 600; }
+.revise-msg:empty { display: none; }
+.revise-msg.is-error { color: var(--do); }
+.revise .btn { width: 100%; margin-top: .9rem; }
+
 @media print {
+  .revise { display: none !important; }
   body { background: #fff; font-size: 10.5pt; line-height: 1.5; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .topbar, body > .weave, .footer, .no-print, .btn, #capture-stage, .boot { display: none !important; }
   .print-only { display: block; }

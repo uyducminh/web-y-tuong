@@ -11,33 +11,50 @@ const lower = (v) => norm(v).toLowerCase();
 const isPriceHeader = (s) => /(^|[^\p{L}])(đơn )?giá($|[^\p{L}])/u.test(s);
 const isNameHeader = (s) => /(^|[^\p{L}])(tên|sản phẩm|mặt hàng)($|[^\p{L}])/u.test(s);
 
-/** "180.000đ" → 180000 · "180,000" → 180000 · "1,2 triệu" → 1200000 · "45k" → 45000. Không đọc được → undefined. */
+const isCodeHeader = (s) => /^(mã|stt)(?![\p{L}\d])/u.test(s);
+const hasTen = (s) => /(^|[^\p{L}])tên($|[^\p{L}])/u.test(s);
+
+/** Một cụm số "1.250.000" / "1,2" → số; `decimal` = cho phép dấu thập phân (khi có đơn vị triệu/nghìn). */
+function toNumber(tok, decimal) {
+  const m = /^(\d+)[.,](\d{1,2})$/.exec(tok);
+  if (decimal && m) return Number(`${m[1]}.${m[2]}`);
+  return Number(tok.replace(/[.,]/g, ''));
+}
+
+/**
+ * Lấy CỤM SỐ ĐẦU TIÊN: "180.000đ" → 180000 · "180,000" → 180000 · "180.000 - 200.000đ" → 180000 ·
+ * "1,2 triệu" → 1200000 · "45k" → 45000. Không đọc được → undefined.
+ */
 export function parsePrice(v) {
   if (typeof v === 'number') return Number.isFinite(v) && v >= 0 ? Math.round(v) : undefined;
   const s = lower(v);
-  if (!s) return undefined;
-  const unit = s.match(/(\d+(?:[.,]\d+)?)\s*(triệu|tr|nghìn|ngàn|k)(?![\p{L}])/u);
-  if (unit) {
-    const n = Number(unit[1].replace(',', '.'));
-    const mul = unit[2] === 'triệu' || unit[2] === 'tr' ? 1_000_000 : 1000;
-    return Number.isFinite(n) ? Math.round(n * mul) : undefined;
-  }
-  const digits = s.replace(/[^\d]/g, '');
-  return digits ? Number(digits) : undefined;
+  const first = /\d(?:[\d.,]*\d)?/.exec(s);
+  if (!first) return undefined;
+  const rest = s.slice(first.index + first[0].length);
+  const unit = /(?<![\p{L}])(triệu|tr|nghìn|ngàn|k)(?![\p{L}])/u.exec(rest);
+  const n = toNumber(first[0], !!unit);
+  if (!Number.isFinite(n)) return undefined;
+  return Math.round(unit ? n * (unit[1] === 'triệu' || unit[1] === 'tr' ? 1_000_000 : 1000) : n);
 }
 
+function columnsOf(row) {
+  const cells = (row || []).map(lower);
+  const price = cells.findIndex((c) => c && isPriceHeader(c));
+  const names = cells.map((c, i) => i).filter((i) => i !== price && cells[i] && isNameHeader(cells[i]) && !isCodeHeader(cells[i]));
+  const name = names.find((i) => hasTen(cells[i])) ?? names[0] ?? -1;
+  return { name, price };
+}
+
+/** Trong 5 dòng đầu: ưu tiên dòng có CẢ cột tên và cột giá; không có thì dòng đầu tiên có cột tên. */
 function findHeader(rows) {
+  let nameOnly = null;
   for (let r = 0; r < Math.min(HEADER_SCAN, rows.length); r++) {
-    const cells = (rows[r] || []).map(lower);
-    let name = -1; let price = -1;
-    cells.forEach((c, i) => {
-      if (!c) return;
-      if (price < 0 && isPriceHeader(c)) price = i;
-      else if (name < 0 && isNameHeader(c)) name = i;
-    });
-    if (name >= 0) return { row: r, name, price };
+    const { name, price } = columnsOf(rows[r]);
+    if (name < 0) continue;
+    if (price >= 0) return { row: r, name, price };
+    if (!nameOnly) nameOnly = { row: r, name, price: -1 };
   }
-  return null;
+  return nameOnly;
 }
 
 /** rows: mảng 2 chiều của MỘT sheet → { text: 'cột | cột' mỗi dòng, products: [{ten, gia?}] }. */
