@@ -245,6 +245,29 @@ describe('POST /api/generate', () => {
     expect(k.expiration).toBeUndefined();
   });
 
+  it('payment landing WHILE the assets are written: they are rewritten without TTL', async () => {
+    const { deps } = mkDeps();
+    await seedSession(deps, 'sQ', { uploads: 2 });
+    const { data } = await generate(deps, { sessionId: 'sQ', phone: '0912000125', name: 'Lan' }, { drive: false });
+    const siteId = await siteOfJob(deps, data.jobId);
+    const kv = deps.kv;
+    let flipped = false;
+    deps.kv = new Proxy(kv, { get(target, k) {
+      if (k === 'put') return async (key: string, ...rest: any[]) => {
+        const out = await (target.put as any)(key, ...rest);
+        if (!flipped && key.startsWith(`asset:${siteId}:`)) { flipped = true; await target.put(`paid:${siteId}`, '1'); }
+        return out;
+      };
+      const v = (target as any)[k];
+      return typeof v === 'function' ? v.bind(target) : v;
+    } });
+    expect((await run(deps, data.jobId)).data.state).toBe('ready');
+    expect(flipped).toBe(true);
+    const keys = (await kv.list({ prefix: `asset:${siteId}:` })).keys;
+    expect(keys).toHaveLength(2);
+    for (const k of keys) expect(k.expiration).toBeUndefined();
+  });
+
   it('asset TTL never drops below 60 s for a demo expiring very soon', async () => {
     const { deps } = mkDeps();
     await seedSession(deps, 'sT', { uploads: 1 });

@@ -84,6 +84,15 @@ describe('generatePackage', () => {
     expect(r.site.demo).toEqual({ badge: true, expires: '2026-12-08', checkoutUrl: '' });
   });
 
+  it('keeps turn-30 defaults already recorded in meta.auto (union, not overwrite) after confirmation', async () => {
+    const s = mkSession({ ten_don_vi: 'Đơn vị của bạn', loai_hinh: 'khac', nganh: 'x', dia_phuong: 'y', san_pham: [{ ten: 'z' }],
+      diem_khac_biet: 'd', khach_hang_muc_tieu: 'k', muc_tieu_chinh: 'gioi-thieu', hanh_dong_mong_muon: 'zalo', cam_giac: 'hien-dai',
+      lien_he: { zalo: '0912345678' }, da_xac_nhan: true, meta: { auto: ['ten_don_vi', 'cam_giac'], askedOptional: ['tham_khao'] } });
+    await generatePackage(makeTestDeps({ claude: fake([{ site: goodSite(), analysis }]) }), s, 's');
+    expect(s.brief.meta?.auto).toEqual(['ten_don_vi', 'cam_giac']);
+    expect(s.brief.meta?.askedOptional).toEqual(['tham_khao']);
+  });
+
   it('tells the AI the exact per-type section fields: tool schema + defaultSite skeleton in the prompt', async () => {
     const claude = fake([{ site: goodSite(), analysis }]);
     await generatePackage(makeTestDeps({ claude }), mkSession({ muc_tieu_chinh: 'thu-lead', ten_don_vi: 'HTX Mây' }), 's');

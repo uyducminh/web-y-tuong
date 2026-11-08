@@ -128,13 +128,15 @@ async function call<T>(deps: Deps, o: { system: string; messages: Msg[]; tool: {
 /**
  * Generates {site, analysis} via tool emit_package with one validated retry. If an attempt throws ClaudeError (timeout/no tool_use)
  * the valid parts of the earlier reply are kept (mergeFallback); with nothing usable it returns defaultSite + defaultAnalysis. Never throws a ClaudeError.
- * Side effect: sets `s.brief.meta.auto` to the required items still empty at generation time (the caller must persist `s`).
+ * Side effect: adds to `s.brief.meta.auto` the required items still empty at generation time, keeping earlier entries (the caller persists it).
  * Template is derived from `brief.muc_tieu_chinh` by code; siteId/template/demo always come from code.
  */
 export async function generatePackage(deps: Deps, s: Session, siteId: string)
   : Promise<{ site: SiteJson; analysis: Analysis; usedFallback: boolean }> {
+  // Union: the turn-30 defaults recorded by POST /api/brief/confirm are no longer "missing" here but are still auto.
   const missing = stepState(s.brief).missing;
-  s.brief = { ...s.brief, meta: { ...(s.brief.meta ?? {}), auto: missing } };
+  const auto = [...new Set([...(s.brief.meta?.auto ?? []), ...missing])];
+  s.brief = { ...s.brief, meta: { ...(s.brief.meta ?? {}), auto } };
 
   const template = templateFor(s.brief);
   const now = deps.now();

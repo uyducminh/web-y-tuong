@@ -1,11 +1,12 @@
 import { defaultAnalysis, defaultSite, templateFor, type Analysis, type Proposal, type SiteJson } from '@sme/schema';
 import type { Deps, Job, Session, SiteMeta } from '../types';
 import { getJson, putJson } from '../kv';
+import { updateSession } from '../session-store';
 import { fallbackProposal, generatePackage } from '../ai/generate';
 import { overDailyCap } from '../ai/cost';
 import { analysisKey, assetKey, briefKey, bumpStat, demoUrl, docsKey, isPaid, packageUrl, ttlUntil } from '../sites';
 import {
-  type JobRecord, GAVE_UP_MSG, GEN_FAILED, SESSION_TTL_WITH_SITE, UNPUBLISHED_GIVE_UP_MS,
+  type JobRecord, GAVE_UP_MSG, GEN_FAILED, UNPUBLISHED_GIVE_UP_MS,
   jobIdxKey, loadJob, publicJob, queueKey, quietly, saveJob,
 } from './record';
 import { LEASE_AI_MS, LeaseLostError, acquireLease, assertLease, leaseLive, releaseLease, saveLeased } from './lease';
@@ -119,7 +120,9 @@ async function aiStage(deps: Deps, jobId: string, runner: string): Promise<Stage
   const meta = await getJson<SiteMeta>(deps.kv, `site:${job.siteId}`);
   if (!meta) throw new Error(`site record missing for ${job.siteId}`);
   const assetTtl = ttlUntil(deps, meta.expires);
-  await putJson(deps.kv, `sess:${s.id}`, s, SESSION_TTL_WITH_SITE);
+  // Only meta.auto changed on `s` (generatePackage); apply it to a fresh copy so the slow AI call cannot roll back the session.
+  const auto = s.brief.meta?.auto;
+  await updateSession(deps, s.id, (cur) => { cur.brief = { ...cur.brief, meta: { ...(cur.brief.meta ?? {}), auto } }; });
   await putJson(deps.kv, `sitejson:${job.siteId}`, site);
   await putJson(deps.kv, `proposal:${job.siteId}`, proposal);
   await putJson(deps.kv, analysisKey(job.siteId), analysis);
@@ -128,7 +131,11 @@ async function aiStage(deps: Deps, jobId: string, runner: string): Promise<Stage
   await putJson(deps.kv, docsKey(job.siteId), s.docsText ?? '');
   // Payment may land during the AI stage: a paid demo's images must not expire.
   const paidNow = await isPaid(deps, job.siteId);
-  for (const u of uploads) await putJson(deps.kv, assetKey(job.siteId, u.path), { mime: u.mime, base64: u.base64 }, paidNow ? undefined : assetTtl);
+  const writeAssets = (ttl: number | undefined) => Promise.all(uploads.map((u) =>
+    putJson(deps.kv, assetKey(job.siteId, u.path), { mime: u.mime, base64: u.base64 }, ttl)));
+  await writeAssets(paidNow ? undefined : assetTtl);
+  // The webhook may have marked it paid (and cleared asset TTLs) while the loop above wrote them with a TTL: rewrite.
+  if (!paidNow && uploads.length && (await isPaid(deps, job.siteId))) await writeAssets(undefined);
   await putJson(deps.kv, `site:${job.siteId}`, { ...meta, template: site.template, analysisReady: true } satisfies SiteMeta);
 
   job.state = 'ready'; job.stage = 'ready'; job.stageAt = deps.now().toISOString();
