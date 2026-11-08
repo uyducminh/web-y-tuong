@@ -10,9 +10,9 @@ const ASSET_FILE = /^[a-z0-9][a-z0-9._-]{0,127}$/i;
 
 export const DEMO_CSP = "default-src 'self'; img-src 'self' data: blob:; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline'; frame-ancestors 'self'; frame-src https://www.google.com https://maps.google.com";
 
-const DEMO_HEADERS = { 'X-Robots-Tag': 'noindex, nofollow', 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' };
+export const DEMO_HEADERS = { 'X-Robots-Tag': 'noindex, nofollow', 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' };
 
-function demoRes(body: BodyInit | null, status: number, headers: Record<string, string> = {}): Response {
+export function demoRes(body: BodyInit | null, status: number, headers: Record<string, string> = {}): Response {
   return new Response(body, { status, headers: { ...DEMO_HEADERS, ...headers } });
 }
 const html = (body: string, status: number) =>

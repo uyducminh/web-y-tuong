@@ -14,6 +14,7 @@ import { postCheckout } from './routes/checkout';
 import { runDaily } from './cron';
 import { postPayosWebhook } from './routes/payos-webhook';
 import { getDemo, postTestSeed } from './routes/demo';
+import { getPackageApi, getPackagePage } from './routes/package';
 
 type Handler = (req: Request, deps: Deps, ctx: ExecutionContext, url: URL) => Promise<Response>;
 type Route = { method: string; path: string | RegExp; handler: Handler };
@@ -37,6 +38,8 @@ export const routes: Route[] = [
   { method: 'POST', path: '/api/checkout', handler: (req, deps) => postCheckout(req, deps) },
   { method: 'POST', path: '/webhook/payos', handler: (req, deps) => postPayosWebhook(req, deps) },
   { method: 'GET', path: /^\/d\//, handler: (_req, deps, _ctx, url) => getDemo(deps, url.pathname) },
+  { method: 'GET', path: /^\/api\/package\/[a-z0-9-]{1,64}$/, handler: (_req, deps, _ctx, url) => getPackageApi(deps, url.pathname.split('/')[3]) },
+  { method: 'GET', path: /^\/package\//, handler: (_req, deps, _ctx, url) => getPackagePage(deps, url.pathname) },
 ];
 
 /** e2e only: registered ONLY when env ALLOW_TEST_SEED === '1' (config.allowTestSeed); never set in wrangler.toml. */

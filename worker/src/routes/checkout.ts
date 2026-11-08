@@ -1,4 +1,4 @@
-import type { Deps, SiteMeta } from '../types';
+import type { Config, Deps, SiteMeta } from '../types';
 import { errorJson, json, readJson } from '../http';
 import { getJson, putJson } from '../kv';
 import { payosDescription } from '../clients/payos';
@@ -7,6 +7,14 @@ import { isPaid } from '../sites';
 export const MIN_PACKAGE_VND = 10_000_000;
 export const ORDER_TTL = 400 * 24 * 3600;
 const MAX_TRIES = 5;
+
+type Pkg = Config['packages'][number];
+/** A package POST /api/checkout will sell: safe positive integer price, ≥ MIN_PACKAGE_VND unless allowTestPrice. */
+export const isSellable = (p: Pkg, config: Config) =>
+  Number.isSafeInteger(p.priceVnd) && p.priceVnd > 0 && (config.allowTestPrice || p.priceVnd >= MIN_PACKAGE_VND);
+/** The packages pages may offer: exactly those checkout accepts, at the prices it charges (only from config.packages). */
+export const sellablePackages = (config: Config) =>
+  config.packages.filter((p) => isSellable(p, config)).map(({ id, name, priceVnd, items }) => ({ id, name, priceVnd, items }));
 
 export type Order = { siteId: string; packageId: string; amount: number; createdAt: string };
 export const orderKey = (code: number) => `order:${code}`;
@@ -36,7 +44,7 @@ export async function postCheckout(req: Request, deps: Deps): Promise<Response> 
   const pkg = deps.config.packages.find((p) => p.id === body.packageId);
   if (!pkg) return errorJson(400, 'Gói triển khai không tồn tại.');
   const amount = pkg.priceVnd;
-  if (!Number.isSafeInteger(amount) || amount <= 0 || (!deps.config.allowTestPrice && amount < MIN_PACKAGE_VND)) {
+  if (!isSellable(pkg, deps.config)) {
     console.error('package price rejected', pkg.id, amount);
     return errorJson(400, 'Gói triển khai này hiện chưa mở bán.');
   }
