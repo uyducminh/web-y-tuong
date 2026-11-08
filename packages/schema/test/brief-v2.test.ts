@@ -19,6 +19,11 @@ describe('stepState', () => {
     expect(stepState({ ...s3, meta: asked }).step).toBe('xac_nhan');
     expect(stepState({ ...s3, meta: asked }).index).toBe(8);
   });
+  it('san_pham counts only when some item has a non-blank name', () => {
+    expect(stepState({ ...s2, san_pham: [{ ten: '   ' }, { ten: '' }] }).missing).toContain('san_pham');
+    expect(stepState({ ...s2, san_pham: [{ ten: '   ' }] }).step).toBe('san_pham');
+    expect(stepState({ ...s2, san_pham: [{ ten: ' ' }, { ten: 'Trà' }] }).missing).not.toContain('san_pham');
+  });
   it('canConfirm needs contact', () => {
     expect(stepState({ ...s3, meta: asked }).canConfirm).toBe(false);
     expect(stepState({ ...s3, lien_he: { zalo: '0912345678' }, meta: asked }).canConfirm).toBe(true);

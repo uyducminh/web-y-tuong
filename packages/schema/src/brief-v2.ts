@@ -56,7 +56,7 @@ function missingFor(b: BriefV2): Record<StepId, string[]> {
   const contact = filled(b.lien_he?.phone) || filled(b.lien_he?.zalo) ? [] : ['lien_he.phone|zalo'];
   return {
     don_vi: m(['ten_don_vi', 'loai_hinh', 'nganh', 'dia_phuong']),
-    san_pham: [...((b.san_pham?.length ?? 0) > 0 ? [] : ['san_pham']), ...m(['diem_khac_biet'])],
+    san_pham: [...((b.san_pham ?? []).some((p) => filled(p.ten)) ? [] : ['san_pham']), ...m(['diem_khac_biet'])],
     khach_hang: m(['khach_hang_muc_tieu']),
     muc_tieu: m(['muc_tieu_chinh', 'hanh_dong_mong_muon']),
     phong_cach: m(['cam_giac']),
